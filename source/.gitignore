@@ -1,0 +1,20 @@
+# Vecta local data — never commit
+.vecta/
+
+# Environment
+.env
+relay/.dev.vars
+
+# Node / Bun
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Go
+engine/vecta-engine
+engine/vecta-engine.exe
+
+# OS junk
+.DS_Store
+Thumbs.db
+Desktop.ini

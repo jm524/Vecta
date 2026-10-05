@@ -1,0 +1,3 @@
+// Status:: planned
+// Custom roles directory — JSON registry loaded at runtime.
+// Sprint Plan §2F: custom roles are JSON entries, not .ts files. This dir holds the registry.
