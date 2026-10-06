@@ -51,3 +51,22 @@
 - Fixed ESM URL resolution for `__dirname` using `fileURLToPath(import.meta.url)`.
 - Resolved TypeScript 5 deprecation warning on `baseUrl` when `"moduleResolution": "bundler"` is active.
 - Added `@types/node` to resolve core Node API typings across the interface layer.
+
+### v0.0.2 — October 5, 2026
+#### Added
+- Implemented Go stdio JSON engine in `engine/main.go` and `engine/bridge/bridge.go`.
+- Compiled native binary `engine/vecta-engine.exe`.
+- Created TypeScript `EngineBridge` client in `interface/src/bridge/client.ts` with subprocess lifecycle management.
+- Implemented root Ink UI in `interface/src/app.tsx` with live bridge connection status.
+- Created `interface/src/main.ts` with clean OS signal teardown and storage initialization.
+- Added automated round-trip verification test in `interface/src/test-bridge.ts`.
+
+### v0.0.3 — October 6, 2026
+#### Added
+- Implemented `hooks/useModeTab.ts` for instant `Tab` key mode switching between Planning and Implementation.
+- Implemented `components/StatusBar.tsx` bottom bar with active mode pill, current model, and shortcut hints.
+- Implemented `components/Sidebar.tsx` with live token counters (10k warning cap) and pipeline task list, toggleable via `Ctrl+→` and `Ctrl+←`.
+- Implemented `components/Chat.tsx` with conversation stream and interactive `ink-text-input` prompt box.
+- Composed master terminal shell in `app.tsx` with Alternate Screen Buffer (`\x1b[?1049h` / `\x1b[?1049l`) for clean full-screen rendering and clean exit restoration.
+- Wired Manager I/O loop: keyword heuristic pipeline assembly in Implementation mode and architecture decomposition in Planning mode.
+- Built-in command handling for `/help`, `/exit`, and `/quit`.

@@ -31,9 +31,9 @@ Per `Building/Checklist.md`, these architectural definitions are prerequisites f
 | **9** | Mon Oct 12 | `v0.0.9` | **Model Catalog** | Query runtimes for exact model names, scan `.gguf` files on disk, build recommendation engine. |
 | **10** | Tue Oct 13 | `v0.0.10` | **Model Wiring** | Wire model catalog into `/agent roles`, implement `llama.cpp` spawn/stop logic. |
 | **11** | Wed Oct 14 | `v0.0.11` | **Roles Configuration UI** | `/agent roles` interactive roster `[on]`/`[off]` + model drill-down screens. |
-| **12** | Thu Oct 15 | `v0.0.12` | **Prompt & Styling** | `/prompt` editor (≤300 words) + theme color picker. |
+| **12** | Thu Oct 15 | `v0.0.12` | **Prompt & UI Styling** | `/prompt` editor (≤300 words) + UI theme & color palette customization. |
 | **13** | Fri Oct 16 | `v0.0.13` | **Chats, Projects & Queue** | `/chats` + `/projects` + `/queue` modal overlay (`q` key). |
-| **14** | Sat Oct 17 | `v0.0.14` | **Settings & Mode Switching** | `/memory` + `/settings` bare versions + instant `Tab` mode switching. |
+| **14** | Sat Oct 17 | `v0.0.14` | **Settings & UI Shell Redesign** | `/memory` + `/settings` bare versions + Step 4c UI layout polish pass (smooth scrolling, custom borders, responsive alignments). |
 | **15** | Sun Oct 18 | `v0.0.15` | **Documenter & Raw Log** | Documenter full handshake + encrypted `raw.log` + `manager-duties.json` state. |
 | **16** | Mon Oct 19 | `v0.0.16` | **OS Vault Encryption** | `crypto.go`: key gen, Windows DPAPI integration, AES-GCM encrypt-on-write / decrypt flow. |
 | **17** | Tue Oct 20 | `v0.0.17` | **Log Compaction & Pruning** | Ring-buffer eviction, 2-week auto-delete, compaction $\rightarrow$ 350-word `summary.json`. |

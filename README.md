@@ -3,13 +3,9 @@ Personal Passion project to create a open-source CLI that manages cloud and loca
 
 # Kanban Board
 
-> **Sprint:** Oct 4 -> Oct 26 (23 days, no rest)
+> **Sprint:** Oct 4 -> Oct 26 (23 days, no rest)  
 > **Deadline:** Mon Oct 26 - Congressional App Challenge demo
 
-| To Do | In Progress | Done |
+| To Do | In Process | Done |
 | :--- | :--- | :--- |
-| 1. Download dependencies + verify toolchain | - | UI/Backend feature decisions |
-| 2. Scaffold repo (`interface/` `engine/` `roles/` `state/`) + `dev` branch | - | Planning docs check-up / review |
-| 3. Ink `app.tsx` hello world + Go `main.go` | - | Claude full chats cleanup + overview fix |
-| 4. JSON stdio bridge round-trip | - | Docs review |
-| 5. Status bar + layout shell + Manager input/output loop | - | Timeline update |
+| 1. `roles/base.ts` + Manager and Coder prompts<br>2. `task-relay.tmp` handshake + Documenter copy<br>3. E2E pipeline test: Manager → Coder → Documenter<br>4. Go hardware scanner (RAM, VRAM, GPU, ports)<br>5. Model catalog scan + recommendations | 1. TS FIFO queue + Go sequential dispatch engine | 1. Download dependencies & verify toolchain<br>2. Scaffold repo structure & dev branch<br>3. Ink `app.tsx` & Go `main.go`<br>4. JSON stdio bridge round-trip<br>5. Terminal layout shell & Manager I/O loop<br>6. Full-screen canvas & clean exit<br>7. Documentation suite in `source/docs/`<br>8. UI/Backend feature decisions & planning |

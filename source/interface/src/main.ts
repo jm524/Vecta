@@ -17,8 +17,13 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Make sure we stop the Go engine cleanly whenever the program closes.
+  // Switch terminal to Alternate Screen Buffer (dedicated full-screen canvas like vim/opencode)
+  process.stdout.write("\x1b[?1049h\x1b[H");
+
+  // Make sure we stop the Go engine cleanly and restore the normal terminal screen.
   const cleanup = () => {
+    // Switch back to Main Screen Buffer (wipes the UI from the terminal and restores history)
+    process.stdout.write("\x1b[?1049l");
     engineBridge.stop();
   };
 
@@ -33,10 +38,15 @@ async function main(): Promise<void> {
   });
 
   // Render our React / Ink interface onto the terminal screen.
-  const instance = render(React.createElement(App));
+  const instance = render(React.createElement(App), {
+    exitOnCtrlC: true,
+  });
 
   // Wait until Ink says the app has finished running.
   await instance.waitUntilExit();
+  instance.unmount();
+  cleanup();
+  process.exit(0);
 }
 
 // Kick off the application and log any unhandled crash.
