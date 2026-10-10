@@ -1,5 +1,6 @@
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
+import * as fs from "fs/promises";
+import * as path from "path";
+import { getVectaDir } from "../interface/src/helpers/paths.js";
 
 export type RelayCase =
   | "role_output"
@@ -66,8 +67,7 @@ export type TaskRelay =
  * Gets the path to the task-relay.tmp file for a given chat.
  */
 function getRelayPath(chatId: string): string {
-  // We assume the CWD is the project root, where .vecta is stored.
-  return path.join(process.cwd(), ".vecta", "chats", chatId, "task-relay.tmp");
+  return path.join(getVectaDir(), "chats", chatId, "task-relay.tmp");
 }
 
 /**

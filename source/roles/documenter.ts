@@ -1,5 +1,6 @@
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
+import * as fs from "fs/promises";
+import * as path from "path";
+import { getVectaDir } from "../interface/src/helpers/paths.js";
 import {
   type RoleDefinition,
   DEFAULT_LAYER_1_LIMITS,
@@ -56,7 +57,7 @@ export const documenterRole: RoleDefinition = {
  * Gets the path to the raw.log file for a given chat.
  */
 function getRawLogPath(chatId: string): string {
-  return path.join(process.cwd(), ".vecta", "chats", chatId, "raw.log");
+  return path.join(getVectaDir(), "chats", chatId, "raw.log");
 }
 
 /**

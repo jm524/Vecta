@@ -96,3 +96,9 @@
 - Implemented `roles/documenter.ts` with `documenterPassiveCopy` generating compact, accountant-style meeting minutes appended to `raw.log`.
 - Updated `roles/index.ts` to export Documenter for full system access.
 - Confirmed full integration with automated typecheck passing.
+
+### v0.0.7 — October 10, 2026
+#### Added
+- Implemented `test-e2e.ts` automating the complete E2E task pipeline lifecycle (Manager → Coder → Documenter).
+- Verified `task-relay.tmp` file handshakes function as expected, triggering Documenter's passive `raw.log` creation upon completion of a worker role task.
+- Validated integration between the Node.js TypeScript queue and the native Go engine execution via stdio JSON bridge.
