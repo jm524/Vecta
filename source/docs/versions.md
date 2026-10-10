@@ -70,3 +70,22 @@
 - Composed master terminal shell in `app.tsx` with Alternate Screen Buffer (`\x1b[?1049h` / `\x1b[?1049l`) for clean full-screen rendering and clean exit restoration.
 - Wired Manager I/O loop: keyword heuristic pipeline assembly in Implementation mode and architecture decomposition in Planning mode.
 - Built-in command handling for `/help`, `/exit`, and `/quit`.
+
+### v0.0.4 — October 7, 2026
+#### Added
+- Implemented in-memory FIFO task queue manager in `state/session.ts`.
+- Implemented Go sequential dispatch engine in `engine/queue/queue.go` enforcing Layer 1 OS filesystem boundaries.
+- Added `queue_dispatch` action and typed payload contracts in `interface/src/types/bridge.ts` and `engine/bridge/bridge.go`.
+- Implemented `hooks/useQueue.ts` coordinating single-task sequential dispatch to Go.
+- Connected live queue progress to `app.tsx` and `components/Sidebar.tsx` with dynamic status markers (`[●]`, `[✓]`, `[ ]`), role chat responses, and token accumulation.
+- Added automated queue test suite in `interface/src/test-queue.ts`.
+
+### v0.0.5 — October 8, 2026
+#### Added
+- Implemented `roles/base.ts` shared role interface defining `RoleFunction`, `RoleStage`, `Layer1Limits`, `Layer2Limits`, and `assembleTaskPrompt` 4-tier prompt builder.
+- Implemented `roles/manager.ts` with canonical `defaultDuties` (9 core responsibilities) and comprehensive `MANAGER_DEFAULT_PROMPT`.
+- Implemented `roles/coder.ts` with `CODER_DEFAULT_PROMPT` for Stage 1 code generation within strict file boundaries and diff outputs.
+- Created `roles/index.ts` central barrel export hub.
+- Added automated role and prompt assembly test suite in `interface/src/test-roles.ts`.
+- Refactored `Chat.tsx` and `app.tsx` with fixed-row line budgeting and pre-wrapping, resolving text collisions and smooth line scrolling.
+

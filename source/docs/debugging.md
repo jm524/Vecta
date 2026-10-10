@@ -21,3 +21,12 @@
 - **Symptom:** TypeScript flagged deprecation warning on Line 15 (`baseUrl: "."`).
 - **Root Cause:** TypeScript 5.0+ deprecates `baseUrl` when `"moduleResolution": "bundler"` is selected because path aliases resolve directly relative to the tsconfig file.
 - **Resolution:** Removed `"baseUrl": "."` and mapped `@roles/*`, `@state/*`, and `@interface/*` paths directly.
+
+### ISSUE-003: Task ID Collision Causing Infinite Repeat Loop
+- **File:** `state/session.ts`, `interface/src/hooks/useQueue.ts`, `interface/src/app.tsx`
+- **Symptom:** Submitting a prompt repeatedly or running subsequent tasks caused Frontend Engineer / Coder to loop infinitely.
+- **Root Cause:** Hardcoded static task IDs (`"task-01"`, `"task-02"`) caused `sessionManager.updateStatus()` to match and update stale completed tasks from prior runs, leaving new tasks in a permanent `"pending"` state inside the `while` loop.
+- **Resolution:** 
+  1. Generated unique timestamped task IDs per dispatch (`task-${Date.now()}-1`).
+  2. Added queue reset logic in `useQueue.ts` on new pipeline runs.
+  3. Scoped `updateStatus()` to target active/pending tasks matching the ID.

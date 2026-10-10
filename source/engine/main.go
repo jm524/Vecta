@@ -10,7 +10,10 @@ import (
 	"os"
 
 	"github.com/vecta-cli/engine/bridge"
+	"github.com/vecta-cli/engine/queue"
 )
+
+var queueRunner = queue.NewRunner()
 
 func main() {
 	// A scanner reads input line by line from TypeScript.
@@ -45,8 +48,31 @@ func handleRequest(req bridge.Request) {
 			Success: true,
 			Data: bridge.PingResponse{
 				Message: "pong from Go engine",
-				Version: "0.0.2",
+				Version: "0.0.4",
 			},
+		}
+		sendJSON(resp)
+
+	case "queue_dispatch":
+		// Parse the task payload sent from TypeScript.
+		var payload bridge.QueueDispatchPayload
+		if err := json.Unmarshal(req.Payload, &payload); err != nil {
+			sendError(req.ID, fmt.Sprintf("failed to parse dispatch payload: %v", err))
+			return
+		}
+
+		// Execute the task sequentially via the queue runner.
+		result, err := queueRunner.ExecuteTask(payload)
+		if err != nil {
+			sendError(req.ID, fmt.Sprintf("task execution failed: %v", err))
+			return
+		}
+
+		// Return success with the task result.
+		resp := bridge.Response{
+			ID:      req.ID,
+			Success: true,
+			Data:    result,
 		}
 		sendJSON(resp)
 
