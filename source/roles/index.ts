@@ -5,3 +5,5 @@
 export * from "./base.js";
 export * from "./manager.js";
 export * from "./coder.js";
+export * from "./documenter.js";
+

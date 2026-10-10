@@ -89,3 +89,10 @@
 - Added automated role and prompt assembly test suite in `interface/src/test-roles.ts`.
 - Refactored `Chat.tsx` and `app.tsx` with fixed-row line budgeting and pre-wrapping, resolving text collisions and smooth line scrolling.
 
+### v0.0.6 — October 9, 2026
+#### Added
+- Implemented `state/relay.ts` for the `task-relay.tmp` file handshake protocol (Role writes → Documenter passive copy → Documenter confirms → Manager clears).
+- Defined strongly-typed JSON schema in `state/relay.ts` for 5 handoff cases: `role_output`, `role_brief`, `planning_output`, `role_skipped`, `failsafe_handoff`.
+- Implemented `roles/documenter.ts` with `documenterPassiveCopy` generating compact, accountant-style meeting minutes appended to `raw.log`.
+- Updated `roles/index.ts` to export Documenter for full system access.
+- Confirmed full integration with automated typecheck passing.
