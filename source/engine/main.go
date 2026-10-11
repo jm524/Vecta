@@ -5,12 +5,15 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/vecta-cli/engine/bridge"
 	"github.com/vecta-cli/engine/queue"
+	"github.com/vecta-cli/engine/scanner"
 )
 
 var queueRunner = queue.NewRunner()
@@ -73,6 +76,33 @@ func handleRequest(req bridge.Request) {
 			ID:      req.ID,
 			Success: true,
 			Data:    result,
+		}
+		sendJSON(resp)
+
+	case "hw_scan":
+		// Run the full hardware + runtime + model file scan.
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+
+		// Check if TypeScript passed any custom model folders or files to scan.
+		var customPaths []string
+		if len(req.Payload) > 0 {
+			var scanPayload bridge.HardwareScanPayload
+			if err := json.Unmarshal(req.Payload, &scanPayload); err == nil {
+				customPaths = scanPayload.CustomPaths
+			}
+		}
+
+		scanResult, err := scanner.RunScanWithOptions(ctx, customPaths)
+		if err != nil {
+			sendError(req.ID, fmt.Sprintf("hardware scan failed: %v", err))
+			return
+		}
+
+		resp := bridge.Response{
+			ID:      req.ID,
+			Success: true,
+			Data:    scanResult,
 		}
 		sendJSON(resp)
 

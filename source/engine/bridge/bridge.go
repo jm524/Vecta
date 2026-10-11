@@ -35,6 +35,14 @@ type QueueDispatchPayload struct {
 	FileBoundaries []string `json:"fileBoundaries"`
 }
 
+// HardwareScanPayload carries optional custom search paths for finding models on disk.
+type HardwareScanPayload struct {
+	CustomPaths []string `json:"customPaths,omitempty"`
+}
+
+// Note: hw_scan action returns scanner.ScanResult directly in Response.Data.
+// No separate bridge type needed — the generic interface{} field handles it.
+
 // QueueDispatchResult is what Go returns when a task finishes running.
 type QueueDispatchResult struct {
 	TaskID      string `json:"taskId"`
