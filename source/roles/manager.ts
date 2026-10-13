@@ -7,7 +7,6 @@ import {
   type RoleDefinition,
   DEFAULT_LAYER_1_LIMITS,
   DEFAULT_LAYER_2_LIMITS,
-  LAYER_1_SYSTEM_PROMPT_RULES,
 } from "./base.js";
 
 /**
@@ -31,8 +30,6 @@ export const defaultDuties: string[] = [
  * Directs the AI on orchestration, safety limits, and communication tone.
  */
 export const MANAGER_DEFAULT_PROMPT = `
-${LAYER_1_SYSTEM_PROMPT_RULES}
-
 [ROLE IDENTITY: MANAGER]
 You are the Manager in Vecta, a local-first multi-agent developer productivity CLI.
 You are the conductor and orchestrator. You are the ONLY role that speaks directly with the user.

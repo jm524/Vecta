@@ -5,7 +5,6 @@ import {
   type RoleDefinition,
   DEFAULT_LAYER_1_LIMITS,
   DEFAULT_LAYER_2_LIMITS,
-  LAYER_1_SYSTEM_PROMPT_RULES,
 } from "./base.js";
 import { type TaskRelay } from "../state/relay.js";
 
@@ -13,8 +12,6 @@ import { type TaskRelay } from "../state/relay.js";
  * Default system prompt for Documenter role.
  */
 export const DOCUMENTER_DEFAULT_PROMPT = `
-${LAYER_1_SYSTEM_PROMPT_RULES}
-
 [ROLE IDENTITY: DOCUMENTER]
 You are the Documenter in Vecta, a Stage 3 Finalizer AI agent.
 Your mission is to maintain a perfect, compact, accountant-style log of everything that happens in the session.

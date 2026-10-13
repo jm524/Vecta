@@ -3,7 +3,7 @@ import readline from "node:readline";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import type { BridgeRequest, BridgeResponse } from "../types/bridge.js";
+import type { BridgeRequest, BridgeResponse, HardwareScanResult } from "../types/bridge.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -72,8 +72,25 @@ export class EngineBridge {
       this.requestCounter += 1;
       const id = String(this.requestCounter);
 
+      // Timeout watchdog: reject cleanly after 60s to prevent Promise deadlocks (BUG-002)
+      const timeout = setTimeout(() => {
+        if (this.pendingRequests.has(id)) {
+          this.pendingRequests.delete(id);
+          reject(new Error(`Bridge request timed out after 60s (action: ${action}, id: ${id})`));
+        }
+      }, 60000);
+
       // Save the promise handlers so we can finish when Go sends the matching ID back.
-      this.pendingRequests.set(id, { resolve, reject });
+      this.pendingRequests.set(id, {
+        resolve: (val) => {
+          clearTimeout(timeout);
+          resolve(val);
+        },
+        reject: (err) => {
+          clearTimeout(timeout);
+          reject(err);
+        },
+      });
 
       const request: BridgeRequest = {
         id,
@@ -91,6 +108,11 @@ export class EngineBridge {
     return this.send<{ message: string; version: string }>("ping");
   }
 
+  // Helper function to trigger a full hardware, runtime, and model scan.
+  public async hwScan(customPaths?: string[]): Promise<BridgeResponse<HardwareScanResult>> {
+    return this.send<HardwareScanResult>("hw_scan", { customPaths });
+  }
+
   // Closes the Go engine process when the user exits the app.
   public stop(): void {
     if (this.process) {
@@ -101,13 +123,25 @@ export class EngineBridge {
   }
 
   // Finds the path to the Go binary whether on Windows (.exe) or Unix.
+  // Checks candidate paths to prevent bundled mode resolution failures (BUG-003).
   private getEngineBinaryPath(): string {
     const isWindows = process.platform === "win32";
     const binaryName = isWindows ? "vecta-engine.exe" : "vecta-engine";
 
-    // Navigates from interface/src/bridge to engine/
-    const devPath = path.resolve(__dirname, "..", "..", "..", "engine", binaryName);
-    return devPath;
+    const candidates = [
+      path.resolve(__dirname, "..", "..", "..", "engine", binaryName),
+      path.resolve(__dirname, "..", "..", "engine", binaryName),
+      path.resolve(process.cwd(), "source", "engine", binaryName),
+      path.resolve(process.cwd(), "engine", binaryName),
+    ];
+
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+
+    return candidates[0]!;
   }
 
   // Parses one line of text from Go and matches it to its waiting request.

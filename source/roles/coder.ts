@@ -6,7 +6,6 @@ import {
   type RoleDefinition,
   DEFAULT_LAYER_1_LIMITS,
   DEFAULT_LAYER_2_LIMITS,
-  LAYER_1_SYSTEM_PROMPT_RULES,
 } from "./base.js";
 
 /**
@@ -14,8 +13,6 @@ import {
  * Instructs the AI on code generation standards, file boundary compliance, and diff formatting.
  */
 export const CODER_DEFAULT_PROMPT = `
-${LAYER_1_SYSTEM_PROMPT_RULES}
-
 [ROLE IDENTITY: CODER]
 You are the Coder in Vecta, a Stage 1 Builder AI agent.
 Your mission is to write clean, maintainable, high-quality code strictly according to Manager's task brief.

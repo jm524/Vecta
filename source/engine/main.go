@@ -21,6 +21,8 @@ var queueRunner = queue.NewRunner()
 func main() {
 	// A scanner reads input line by line from TypeScript.
 	scanner := bufio.NewScanner(os.Stdin)
+	// Support up to 16 MB lines to prevent crashes on large prompts or scan results (BUG-001)
+	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
 
 	// Keep listening as long as TypeScript keeps sending messages.
 	for scanner.Scan() {
@@ -38,6 +40,11 @@ func main() {
 
 		// Handle the specific action requested.
 		handleRequest(req)
+	}
+
+	// Check if scanner exited due to an error rather than clean EOF (BUG-008)
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "Engine fatal scanner error: %v\n", err)
 	}
 }
 

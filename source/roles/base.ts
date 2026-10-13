@@ -111,6 +111,18 @@ export const LAYER_1_SYSTEM_PROMPT_RULES = `
 `.trim();
 
 /**
+ * Strips any baked Layer 1 security limit headers from a prompt string.
+ * Ensures that plain editable prompts (e.g. in config.json or custom-roles.json)
+ * only contain role identity and instructions, never raw security limits.
+ */
+export function stripLayer1Rules(prompt: string): string {
+  if (!prompt) return "";
+  let cleaned = prompt.replace(LAYER_1_SYSTEM_PROMPT_RULES, "");
+  cleaned = cleaned.replace(/\[VECTA LAYER 1 CORE SECURITY RULES[^]*?10\.\s*INTERNAL FILES HIDDEN[^\n]*/gi, "");
+  return cleaned.trim();
+}
+
+/**
  * Task brief delivered to a role when a task is dispatched.
  */
 export interface TaskBrief {
@@ -150,7 +162,7 @@ export interface RoleDefinition {
   enabled: boolean;
   // Terminal display color (e.g. "cyan", "green", "magenta", "blue")
   color: string;
-  // The pre-written system prompt with baked Layer 1 limits
+  // The pre-written system prompt defining role identity and duties (never includes raw Layer 1 limits)
   defaultPrompt: string;
   // The currently active prompt (user-customizable, defaults to defaultPrompt)
   currentPrompt: string;
@@ -160,29 +172,51 @@ export interface RoleDefinition {
   limits: RoleLimits;
   // If Orchestrator, base responsibilities written to manager-duties.json
   defaultDuties?: string[];
+  // How the model is assigned: auto-detected local, cloud API key, or custom folder/file
+  assignmentType?: "local" | "cloud" | "custom_path";
+  // The assigned model name or display label
+  model?: string;
+  // User-specified file path or server endpoint URL (Path 3)
+  customPath?: string;
+  // True if a cloud API key has been stored in the vault (Path 2)
+  apiKeySet?: boolean;
+  // Autonomy mode toward Builders (Sprint Plan §2D: two modes only: "off" | "full")
+  autonomy?: "off" | "full";
+  // Best-effort keep-loaded pin in memory (Sprint Plan §2U)
+  keepLoaded?: boolean;
+  // True if this is a user-created custom role from the JSON registry
+  isCustom?: boolean;
 }
 
 /**
- * Assembles the full 4-layer prompt stack for an AI role:
- * 1. Base prompt (with baked Layer 1 rules)
- * 2. Custom instructions (if configured, up to 300 words)
- * 3. Relevant memory snippets from Manager
- * 4. Specific task description and file boundaries for this run
+ * Assembles the full prompt stack for an AI role:
+ * 1. Layer 1 System Security Rules (Hardcoded in code, ALWAYS active, never editable)
+ * 2. Role Identity & Mission Prompt (clean prompt without baked-in Layer 1 rules)
+ * 3. User Custom Instructions (if set, up to 300 words)
+ * 4. Relevant memory snippets from Manager
+ * 5. Specific task description and file boundaries for this run
  */
 export function assembleTaskPrompt(role: RoleDefinition, brief: TaskBrief): string {
   const sections: string[] = [];
 
-  // Layer 1 + Base Role Identity Prompt
-  sections.push(role.currentPrompt || role.defaultPrompt);
+  // Layer 1: Core System Security Rules (Hardcoded, connects dynamically here at runtime)
+  sections.push(LAYER_1_SYSTEM_PROMPT_RULES);
 
-  // Layer 2: Custom Instructions (if set)
+  // Base Role Identity & Mission Prompt (cleaned of any redundant Layer 1 text)
+  const rawPrompt = role.currentPrompt || role.defaultPrompt;
+  const cleanRolePrompt = stripLayer1Rules(rawPrompt);
+  if (cleanRolePrompt.trim()) {
+    sections.push(cleanRolePrompt.trim());
+  }
+
+  // Layer 2: Custom Instructions (if set by user, up to 300 words)
   if (role.customInstructions && role.customInstructions.trim()) {
-    sections.push(`\n[USER CUSTOM INSTRUCTIONS]\n${role.customInstructions.trim()}`);
+    sections.push(`[USER CUSTOM INSTRUCTIONS]\n${role.customInstructions.trim()}`);
   }
 
   // Layer 3: Memory Snippets
   if (brief.memorySnippets && brief.memorySnippets.length > 0) {
-    sections.push(`\n[RELEVANT PROJECT MEMORY]\n${brief.memorySnippets.join("\n")}`);
+    sections.push(`[RELEVANT PROJECT MEMORY]\n${brief.memorySnippets.join("\n")}`);
   }
 
   // Layer 4: Specific Task Brief & Boundaries
@@ -190,7 +224,7 @@ export function assembleTaskPrompt(role: RoleDefinition, brief: TaskBrief): stri
   const boundaryList = brief.allowedBoundaries.length > 0 ? brief.allowedBoundaries.join(", ") : "source/";
 
   sections.push(
-    `\n[CURRENT TASK BRIEF]\n` +
+    `[CURRENT TASK BRIEF]\n` +
       `User Goal: ${brief.userRequest}\n` +
       `Specific Duty: ${brief.taskDescription}\n` +
       `Assigned Files: ${allowedList}\n` +

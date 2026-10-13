@@ -43,6 +43,8 @@ export const StatusBar: React.FC<StatusBarProps> = ({
       <Box flexDirection="row" gap={1}>
         <Text dimColor>[Tab] Mode</Text>
         <Text dimColor>│</Text>
+        <Text dimColor>[/roles] Roles</Text>
+        <Text dimColor>│</Text>
         <Text dimColor>{sidebarOpen ? "[Ctrl+←] Close Sidebar" : "[Ctrl+→] Open Sidebar"}</Text>
         <Text dimColor>│</Text>
         <Text dimColor>[q] Queue</Text>

@@ -5,10 +5,12 @@
 import {
   managerRole,
   coderRole,
+} from "../../roles/index.js";
+import {
   assembleTaskPrompt,
   type TaskBrief,
   LAYER_1_SYSTEM_PROMPT_RULES,
-} from "../../roles/index.js";
+} from "../../roles/base.js";
 
 function runTests() {
   console.log("=== Running Vecta Role System Tests ===\n");
@@ -21,8 +23,11 @@ function runTests() {
   if (!managerRole.defaultDuties || managerRole.defaultDuties.length !== 9) {
     throw new Error(`Expected 9 default duties in Manager, found ${managerRole.defaultDuties?.length}`);
   }
-  if (!managerRole.defaultPrompt.includes("INSTRUCTIONS ONLY FROM BRIEF")) {
-    throw new Error("Manager defaultPrompt missing Layer 1 rules!");
+  if (managerRole.defaultPrompt.includes("[VECTA LAYER 1 CORE SECURITY RULES")) {
+    throw new Error("Manager defaultPrompt must NOT contain raw Layer 1 security limits!");
+  }
+  if (!managerRole.defaultPrompt.includes("[ROLE IDENTITY: MANAGER]")) {
+    throw new Error("Manager defaultPrompt missing role identity!");
   }
   console.log("✓ Manager Role definition and 9 default duties verified.\n");
 
@@ -31,8 +36,11 @@ function runTests() {
   if (coderRole.name !== "Coder" || coderRole.stage !== 1 || coderRole.roleFunction !== "Builders") {
     throw new Error("Coder role definition invalid!");
   }
-  if (!coderRole.defaultPrompt.includes("STRICT FILE SCOPE")) {
-    throw new Error("Coder defaultPrompt missing Layer 1 rules!");
+  if (coderRole.defaultPrompt.includes("[VECTA LAYER 1 CORE SECURITY RULES")) {
+    throw new Error("Coder defaultPrompt must NOT contain raw Layer 1 security limits!");
+  }
+  if (!coderRole.defaultPrompt.includes("[ROLE IDENTITY: CODER]")) {
+    throw new Error("Coder defaultPrompt missing role identity!");
   }
   console.log("✓ Coder Role definition and Builder stage verified.\n");
 

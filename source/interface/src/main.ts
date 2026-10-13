@@ -39,7 +39,7 @@ async function main(): Promise<void> {
 
   // Render our React / Ink interface onto the terminal screen.
   const instance = render(React.createElement(App), {
-    exitOnCtrlC: true,
+    exitOnCtrlC: false,
   });
 
   // Wait until Ink says the app has finished running.

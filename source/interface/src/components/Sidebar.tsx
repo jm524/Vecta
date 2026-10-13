@@ -3,6 +3,7 @@
 // Shows token count and current pipeline tasks, matching dynamic terminal height.
 import React from "react";
 import { Box, Text } from "ink";
+import type { AppMode } from "../hooks/useModeTab.js";
 
 export interface TaskItem {
   id: string;
@@ -12,6 +13,7 @@ export interface TaskItem {
 }
 
 interface SidebarProps {
+  mode?: AppMode;
   tokensUsed?: number;
   tokenCap1?: number;
   tokenCap2?: number;
@@ -20,6 +22,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
+  mode = "IMPLEMENTATION",
   tokensUsed = 0,
   tokenCap1 = 10000,
   tokenCap2 = 100000,
@@ -40,6 +43,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       paddingX={1}
       paddingY={0}
     >
+      {/* Mode Indicator Widget at top of sidebar (Requirement 6) */}
+      <Box flexDirection="column" marginBottom={1}>
+        <Text bold dimColor>
+          MODE
+        </Text>
+        <Text bold color={mode === "PLANNING" ? "cyan" : "green"}>
+          [{mode === "PLANNING" ? "PLAN" : "BUILD"}]
+        </Text>
+      </Box>
+
       {/* Widget 1: Task Token Count */}
       <Box flexDirection="column" marginBottom={1}>
         <Text bold dimColor>

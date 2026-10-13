@@ -2,7 +2,7 @@
 // Chat is the main conversation panel.
 // Each message is rendered as a clean, stacked column with pre-wrapped lines and strict line budgeting to prevent text collisions.
 import React, { useState, useMemo } from "react";
-import { Box, Text } from "ink";
+import { Box, Text, useInput } from "ink";
 // @ts-ignore ink-text-input exports default
 import TextInput from "ink-text-input";
 import type { AppMode } from "../hooks/useModeTab.js";
@@ -15,6 +15,16 @@ export interface ChatMessage {
   timestamp: string;
 }
 
+export const SLASH_COMMANDS = [
+  { cmd: "/roles", desc: "Manage worker roles, models, and autonomy" },
+  { cmd: "/build", desc: "Switch to BUILD mode (code generation and execution)" },
+  { cmd: "/plan", desc: "Switch to PLAN mode (architectural breakdown)" },
+  { cmd: "/server stop", desc: "Stop background inference servers and free RAM" },
+  { cmd: "/help", desc: "Show available commands" },
+  { cmd: "/exit", desc: "Quit Vecta" },
+  { cmd: "/quit", desc: "Quit Vecta" },
+];
+
 interface ChatProps {
   // Current active mode (PLANNING or IMPLEMENTATION)
   mode: AppMode;
@@ -22,6 +32,8 @@ interface ChatProps {
   messages: ChatMessage[];
   // Called when user submits text
   onSendMessage: (text: string) => void;
+  // Optional helper to look up dynamic role colors
+  getRoleColor?: (sender: string) => string;
   // Whether auto-accept edits is ON or OFF
   autoAccept?: boolean;
   // Exact height available for the chat panel
@@ -87,16 +99,58 @@ export const Chat: React.FC<ChatProps> = ({
   mode,
   messages,
   onSendMessage,
+  getRoleColor,
   autoAccept = false,
   availableHeight = 24,
   availableWidth = 50,
   scrollOffset,
 }) => {
   const [inputText, setInputText] = useState("");
+  const [dropdownIndex, setDropdownIndex] = useState(0);
+
+  const isSlashCommand = inputText.startsWith("/");
+  const filteredCommands = useMemo(() => {
+    if (!isSlashCommand) return [];
+    const search = inputText.toLowerCase().trim();
+    return SLASH_COMMANDS.filter(
+      (c) => c.cmd.toLowerCase().startsWith(search) || c.cmd.toLowerCase().includes(search)
+    );
+  }, [isSlashCommand, inputText]);
+
+  // Handle Tab and Arrow navigation for the slash commands autocomplete dropdown (Requirement 13)
+  useInput((input, key) => {
+    if (isSlashCommand && filteredCommands.length > 0) {
+      if (key.upArrow) {
+        setDropdownIndex((prev) => (prev > 0 ? prev - 1 : filteredCommands.length - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setDropdownIndex((prev) => (prev < filteredCommands.length - 1 ? prev + 1 : 0));
+        return;
+      }
+      if (key.tab) {
+        const selected = filteredCommands[dropdownIndex];
+        if (selected) {
+          setInputText(selected.cmd);
+        }
+        return;
+      }
+    }
+  });
 
   const handleSubmit = (value: string) => {
     const trimmed = value.trim();
     if (!trimmed) return;
+
+    // If typing partial slash command, autocomplete it or submit if full
+    if (isSlashCommand && filteredCommands.length > 0 && trimmed !== filteredCommands[dropdownIndex]?.cmd && !SLASH_COMMANDS.some(c => c.cmd === trimmed)) {
+      const selected = filteredCommands[dropdownIndex];
+      if (selected) {
+        setInputText(selected.cmd);
+        return;
+      }
+    }
+
     onSendMessage(trimmed);
     setInputText("");
   };
@@ -108,8 +162,9 @@ export const Chat: React.FC<ChatProps> = ({
   // Height layout budgeting:
   // - Top Header: 2 lines
   // - Bottom Input Box: 3 lines
-  // - Message Stream: remaining space
-  const messageAreaHeight = Math.max(4, availableHeight - 6);
+  // - Message Stream: remaining space (shrinks slightly if slash dropdown is active)
+  const dropdownHeight = isSlashCommand && filteredCommands.length > 0 ? Math.min(filteredCommands.length + 2, 7) : 0;
+  const messageAreaHeight = Math.max(4, availableHeight - 4 - dropdownHeight);
   // Inner text width accounting for borders, padding, and side scrollbar rail
   const innerWidth = Math.max(20, availableWidth - 8);
 
@@ -131,8 +186,8 @@ export const Chat: React.FC<ChatProps> = ({
           });
         });
       } else {
-        // Role message: Header line with bold role tag and timestamp
-        const roleColor = msg.color || "cyan";
+        // Role message: Header line with bold role tag and dynamic role color (Requirement 1)
+        const roleColor = getRoleColor ? getRoleColor(msg.sender) : (msg.color || "cyan");
         lines.push({
           id: `msg-${msg.id}-h`,
           text: `[${msg.sender}] ${msg.timestamp}`,
@@ -172,9 +227,6 @@ export const Chat: React.FC<ChatProps> = ({
   const visibleEnd = allLines.length - clampedOffset;
   const visibleStart = Math.max(0, visibleEnd - messageAreaHeight);
   const visibleLines = allLines.slice(visibleStart, visibleEnd);
-
-  const olderAbove = visibleStart;
-  const newerBelow = clampedOffset;
 
   // Visual scrollbar track and thumb calculation
   const totalLines = allLines.length;
@@ -224,29 +276,15 @@ export const Chat: React.FC<ChatProps> = ({
   }, [totalLines, messageAreaHeight, scrollbarHeight, visibleStart]);
 
   return (
-    // Outer Chat Box: strictly anchored to availableHeight and availableWidth
+    // Outer Chat Box: strictly anchored to availableHeight and availableWidth (borderless per Requirement 6)
     <Box
       flexDirection="column"
       width={availableWidth}
       height={availableHeight}
-      borderStyle="round"
-      borderColor={modeColor}
       paddingX={1}
       justifyContent="space-between"
     >
-      {/* 1. Top Header */}
-      <Box flexDirection="row" justifyContent="space-between" height={1} marginBottom={1}>
-        <Box flexDirection="row" gap={1}>
-          <Text bold color={modeColor}>
-            [{modeTag}]
-          </Text>
-          {olderAbove > 0 && <Text dimColor>↑ {olderAbove} older (PageUp / Ctrl+Up)</Text>}
-          {newerBelow > 0 && <Text dimColor>↓ {newerBelow} newer (PageDown / Ctrl+Down)</Text>}
-        </Box>
-        <Text dimColor>{isPlanning ? "Tab: Switch to Build" : "Tab: Switch to Plan"}</Text>
-      </Box>
-
-      {/* 2. Middle Message Stream Area with Visual Scrollbar */}
+      {/* Message Stream Area with Visual Scrollbar */}
       <Box
         flexDirection="row"
         height={messageAreaHeight}
@@ -303,7 +341,7 @@ export const Chat: React.FC<ChatProps> = ({
         )}
       </Box>
 
-      {/* 3. Bottom Input Box */}
+      {/* 2. Bottom Input Box */}
       <Box
         flexDirection="row"
         justifyContent="space-between"
@@ -319,7 +357,7 @@ export const Chat: React.FC<ChatProps> = ({
             value={inputText}
             onChange={setInputText}
             onSubmit={handleSubmit}
-            placeholder="Type a message or /exit..."
+            placeholder="Type a message or /roles..."
           />
         </Box>
 
@@ -331,6 +369,37 @@ export const Chat: React.FC<ChatProps> = ({
           </Text>
         </Box>
       </Box>
+
+      {/* 3. Slash Command Autocomplete Dropdown (Rendered under chat box, borderless) */}
+      {isSlashCommand && filteredCommands.length > 0 && (
+        <Box
+          flexDirection="column"
+          paddingX={1}
+          paddingY={0}
+          marginTop={0}
+        >
+          <Box flexDirection="row" justifyContent="space-between" marginBottom={0}>
+            <Text bold color="cyan">
+              Commands:
+            </Text>
+            <Text color="gray">Tab: complete   Up/Down: select   Enter: submit</Text>
+          </Box>
+          {filteredCommands.map((c, idx) => {
+            const isSelected = idx === dropdownIndex;
+            return (
+              <Box key={c.cmd} flexDirection="row" gap={2}>
+                <Box width={14}>
+                  <Text color={isSelected ? "cyan" : "gray"} bold={isSelected}>
+                    {isSelected ? "> " : "  "}
+                    {c.cmd}
+                  </Text>
+                </Box>
+                <Text color={isSelected ? "white" : "gray"}>{c.desc}</Text>
+              </Box>
+            );
+          })}
+        </Box>
+      )}
     </Box>
   );
 };

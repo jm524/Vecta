@@ -8,12 +8,14 @@ import { Sidebar } from "./components/Sidebar.js";
 import { useModeTab } from "./hooks/useModeTab.js";
 import { useQueue } from "./hooks/useQueue.js";
 import { engineBridge } from "./bridge/client.js";
+import { useRoles } from "./hooks/useRoles.js";
+import { AgentRoles } from "./commands/agent-roles.js";
 import type { QueueDispatchPayload } from "./types/bridge.js";
 
 export const App: React.FC = () => {
   const { exit } = useApp();
   // Manage mode (PLANNING = "PLAN" / IMPLEMENTATION = "BUILD")
-  const { mode } = useModeTab("IMPLEMENTATION");
+  const { mode, setMode } = useModeTab("IMPLEMENTATION");
 
   // Hook for strictly sequential FIFO task execution
   const { tasks, totalTokensUsed, dispatchPipeline } = useQueue();
@@ -32,6 +34,12 @@ export const App: React.FC = () => {
 
   // Chat scroll offset (0 = scrolled all the way to newest messages)
   const [scrollOffset, setScrollOffset] = useState(0);
+
+  // Active modal/screen overlay ("none" | "roles")
+  const [activeOverlay, setActiveOverlay] = useState<"none" | "roles">("none");
+
+  // Role system hook managing worker state, catalog, and recommendations
+  const rolesHook = useRoles();
 
   // Conversation messages
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -99,13 +107,15 @@ export const App: React.FC = () => {
 
   const addMessage = (sender: string, text: string, color?: string) => {
     const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const resolvedColor =
+      color || (sender === "User" ? "yellow" : sender === "System" ? "cyan" : rolesHook.getRoleColor(sender));
     setMessages((prev) => [
       ...prev,
       {
         id: String(Date.now() + Math.random()),
         sender,
         text,
-        color,
+        color: resolvedColor,
         timestamp: time,
       },
     ]);
@@ -114,14 +124,86 @@ export const App: React.FC = () => {
   };
 
   const handleUserPrompt = (promptText: string) => {
+    const trimmed = promptText.trim();
+
     // Exit commands
-    if (promptText === "/exit" || promptText === "/quit") {
+    if (trimmed === "/exit" || trimmed === "/quit") {
       addMessage("System", "Exiting...", "yellow");
       setTimeout(() => {
         exit();
         engineBridge.stop();
         process.exit(0);
       }, 100);
+      return;
+    }
+
+    // Agent roles screen command (/agent roles or /roles)
+    if (trimmed === "/agent roles" || trimmed === "/roles") {
+      setActiveOverlay("roles");
+      return;
+    }
+
+    // Build mode command (Requirement 6)
+    if (trimmed === "/build") {
+      if (mode === "IMPLEMENTATION") {
+        addMessage("System", "Already in BUILD mode.", "green");
+      } else {
+        setMode("IMPLEMENTATION");
+        addMessage("System", "Switched to BUILD mode.", "green");
+      }
+      return;
+    }
+
+    // Plan mode command (Requirement 6)
+    if (trimmed === "/plan") {
+      if (mode === "PLANNING") {
+        addMessage("System", "Already in PLAN mode.", "cyan");
+      } else {
+        setMode("PLANNING");
+        addMessage("System", "Switched to PLAN mode.", "cyan");
+      }
+      return;
+    }
+
+    // Stop background inference servers command (Sprint Plan §2U & improvements #9)
+    if (trimmed === "/server stop") {
+      rolesHook.stopBackgroundServer().then((msg) => {
+        addMessage("System", msg, "blue");
+      });
+      return;
+    }
+
+    // Help command (fixes BUG-012, Item 1 & Requirement 6)
+    if (trimmed === "/help") {
+      addMessage(
+        "System",
+        [
+          "Vecta CLI Quick Cheatsheet & Command Index",
+          "",
+          "Commands:",
+          "  /roles (or /agent roles) - Open interactive AI roles manager (models, colors, prompts, autonomy)",
+          "  /build                   - Switch to BUILD mode (code generation and execution)",
+          "  /plan                    - Switch to PLAN mode (architectural breakdown)",
+          "  /server stop             - Stop running background model inference servers (Ollama, LM Studio)",
+          "  /help                    - Display this command index and shortcut reference",
+          "  /exit, /quit             - Cleanly close and exit Vecta",
+          "",
+          "Keyboard Shortcuts:",
+          "  Tab            - Toggle mode between PLANNING (architecture) and BUILD (code generation)",
+          "  Ctrl + Left    - Hide right-hand live inspector sidebar",
+          "  Ctrl + Right   - Reveal right-hand live inspector sidebar",
+          "  Shift + Tab    - Toggle 'Auto-accept edits' mode on/off",
+          "  PageUp / Down  - Scroll up and down through conversation history",
+          "  /              - Open floating slash command autocomplete dropdown below chat input",
+          "",
+          "Inside /roles:",
+          "  Up / Down      - Navigate worker roster and action menus",
+          "  Space          - Toggle worker role on or off (Orchestrators & Documenter stay on)",
+          "  Enter          - Drill down into role settings or select action",
+          "  Esc            - Go back one level or close the roles screen",
+        ].join("\n"),
+        "cyan"
+      );
       return;
     }
 
@@ -142,56 +224,63 @@ export const App: React.FC = () => {
       const pipeline: QueueDispatchPayload[] = [];
       const runId = Date.now();
 
-      // Keyword & path heuristics (Sprint Plan §2M)
+      // Helper to check if a role is currently enabled in rolesHook
+      const isRoleEnabled = (slug: string): boolean => {
+        const found = rolesHook.roles.find((r) => r.slug === slug);
+        return found ? found.enabled : true;
+      };
+
+      // Keyword & path heuristics (Sprint Plan §2M) respecting enabled roles
+      let builderRole = "Coder";
+      let builderPaths = ["source/"];
+      let checkerRole = "Code Reviewer";
+      let checkerPrompt = "Inspect implementation correctness";
+
       if (lower.includes("auth") || lower.includes("api") || lower.includes("login") || lower.includes("database")) {
-        pipeline.push({
-          taskId: `task-${runId}-1`,
-          role: "Backend Engineer",
-          stage: 1,
-          prompt: promptText,
-          filePaths: ["source/engine/"],
-          fileBoundaries: ["source/"],
-        });
-        pipeline.push({
-          taskId: `task-${runId}-2`,
-          role: "Security Checker",
-          stage: 2,
-          prompt: "Verify authentication boundary and credential handling",
-          filePaths: ["source/engine/"],
-          fileBoundaries: ["source/"],
-        });
-      } else if (lower.includes("ui") || lower.includes("component") || lower.includes("button") || lower.includes("screen") || lower.includes("frontend")) {
-        pipeline.push({
-          taskId: `task-${runId}-1`,
-          role: "Frontend Engineer",
-          stage: 1,
-          prompt: promptText,
-          filePaths: ["source/interface/src/components/"],
-          fileBoundaries: ["source/"],
-        });
-        pipeline.push({
-          taskId: `task-${runId}-2`,
-          role: "Code Reviewer",
-          stage: 2,
-          prompt: "Audit component types and layout ergonomics",
-          filePaths: ["source/interface/src/components/"],
-          fileBoundaries: ["source/"],
-        });
+        builderRole = isRoleEnabled("backend-engineer") ? "Backend Engineer" : "Coder";
+        builderPaths = ["source/engine/"];
+        checkerRole = isRoleEnabled("security-checker")
+          ? "Security Checker"
+          : isRoleEnabled("code-reviewer")
+          ? "Code Reviewer"
+          : "Reviewer";
+        checkerPrompt = "Verify authentication boundary and credential handling";
+      } else if (
+        lower.includes("ui") ||
+        lower.includes("component") ||
+        lower.includes("button") ||
+        lower.includes("screen") ||
+        lower.includes("frontend")
+      ) {
+        builderRole = isRoleEnabled("frontend-engineer") ? "Frontend Engineer" : "Coder";
+        builderPaths = ["source/interface/src/components/"];
+        checkerRole = isRoleEnabled("code-reviewer") ? "Code Reviewer" : "Reviewer";
+        checkerPrompt = "Audit component types and layout ergonomics";
       } else {
-        pipeline.push({
-          taskId: `task-${runId}-1`,
-          role: "Coder",
-          stage: 1,
-          prompt: promptText,
-          filePaths: ["source/"],
-          fileBoundaries: ["source/"],
-        });
+        builderRole = isRoleEnabled("coder") ? "Coder" : "Backend Engineer";
+        builderPaths = ["source/"];
+        checkerRole = isRoleEnabled("code-reviewer") ? "Code Reviewer" : "Reviewer";
+        checkerPrompt = "Inspect implementation correctness";
+      }
+
+      // Stage 1: Dispatched Builder
+      pipeline.push({
+        taskId: `task-${runId}-1`,
+        role: builderRole,
+        stage: 1,
+        prompt: promptText,
+        filePaths: builderPaths,
+        fileBoundaries: ["source/"],
+      });
+
+      // Stage 2: Dispatched Checker (only if at least one checker is enabled)
+      if (isRoleEnabled("code-reviewer") || isRoleEnabled("security-checker") || isRoleEnabled("reviewer")) {
         pipeline.push({
           taskId: `task-${runId}-2`,
-          role: "Code Reviewer",
+          role: checkerRole,
           stage: 2,
-          prompt: "Inspect implementation correctness",
-          filePaths: ["source/"],
+          prompt: checkerPrompt,
+          filePaths: builderPaths,
           fileBoundaries: ["source/"],
         });
       }
@@ -213,19 +302,13 @@ export const App: React.FC = () => {
       dispatchPipeline(
         pipeline,
         (taskResult) => {
-          // As each task completes, announce it in chat with role color
-          const roleColor =
-            taskResult.role === "Backend Engineer" || taskResult.role === "Frontend Engineer" || taskResult.role === "Coder"
-              ? "green"
-              : taskResult.role === "Security Checker" || taskResult.role === "Code Reviewer"
-              ? "magenta"
-              : "blue";
-
+          // As each task completes, announce it in chat with dynamic role color (Requirement 1)
+          const roleColor = rolesHook.getRoleColor(taskResult.role);
           addMessage(taskResult.role, taskResult.output, roleColor);
         },
         () => {
           // When all tasks in the pipeline finish
-          addMessage("Manager", "All pipeline tasks completed successfully.", "cyan");
+          addMessage("Manager", "All pipeline tasks completed successfully.", rolesHook.getRoleColor("Manager"));
         }
       );
     }
@@ -245,6 +328,19 @@ export const App: React.FC = () => {
     description: t.prompt,
   }));
 
+  // If the agent roles screen is open, display it full width
+  if (activeOverlay === "roles") {
+    return (
+      <Box width={terminalSize.columns} height={appHeight}>
+        <AgentRoles
+          onClose={() => setActiveOverlay("none")}
+          rolesHook={rolesHook}
+          terminalSize={terminalSize}
+        />
+      </Box>
+    );
+  }
+
   return (
     // Fills entire terminal window dynamically
     <Box flexDirection="row" width={terminalSize.columns} height={appHeight} gap={1} padding={0}>
@@ -253,6 +349,7 @@ export const App: React.FC = () => {
         mode={mode}
         messages={messages}
         onSendMessage={handleUserPrompt}
+        getRoleColor={rolesHook.getRoleColor}
         autoAccept={autoAccept}
         availableHeight={appHeight}
         availableWidth={chatWidth}
@@ -262,6 +359,7 @@ export const App: React.FC = () => {
       {/* Optional Right Sidebar */}
       {sidebarOpen && (
         <Sidebar
+          mode={mode}
           tokensUsed={totalTokensUsed}
           tasks={sidebarTasks}
           height={appHeight}
