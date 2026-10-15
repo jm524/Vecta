@@ -405,7 +405,7 @@ export const App: React.FC = () => {
   };
 
   const appHeight = Math.max(12, terminalSize.rows - 1);
-  const sidebarWidth = 28;
+  const sidebarWidth = 30;
   const chatWidth = sidebarOpen
     ? Math.max(30, terminalSize.columns - sidebarWidth - 1)
     : terminalSize.columns;

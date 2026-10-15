@@ -8,8 +8,14 @@ Write-Host "==> Building Go systems engine (vecta-engine.exe)..." -ForegroundCol
 Set-Location "$RepoDir\engine"
 go build -o vecta-engine.exe .
 
+Write-Host "==> Building Windows keyboard monitor helper (keymonitor.exe)..." -ForegroundColor Cyan
+New-Item -ItemType Directory -Force -Path "$RepoDir\interface\dist\helpers" | Out-Null
+Set-Location "$RepoDir\interface\src\helpers"
+go build -o "$RepoDir\interface\dist\helpers\keymonitor.exe" keymonitor.go
+
 Write-Host "==> Bundling TypeScript interface..." -ForegroundColor Cyan
 Set-Location "$RepoDir\interface"
 npm run build
 
 Write-Host "==> Vecta built successfully!" -ForegroundColor Green
+

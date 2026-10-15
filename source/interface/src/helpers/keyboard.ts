@@ -17,11 +17,30 @@ let monitorProcess: ChildProcess | null = null;
  * On macOS and Linux, modifier states are reported directly by the terminal
  * via Kitty protocol and modifyOtherKeys mode 2.
  */
+import { fileURLToPath } from "node:url";
+
 export function initKeyboardMonitor(): void {
   if (process.platform !== "win32") return;
   if (monitorProcess) return;
 
+  const currentModuleDir = (() => {
+    try {
+      return path.dirname(fileURLToPath(import.meta.url));
+    } catch {
+      return "";
+    }
+  })();
+
   const candidateDirs = [
+    ...(currentModuleDir ? [
+      currentModuleDir,
+      path.resolve(currentModuleDir, "helpers"),
+      path.resolve(currentModuleDir, "..", "helpers"),
+      path.resolve(currentModuleDir, "..", "dist", "helpers"),
+      path.resolve(currentModuleDir, "..", "src", "helpers"),
+    ] : []),
+    path.resolve(process.cwd(), "dist", "helpers"),
+    path.resolve(process.cwd(), "dist"),
     path.resolve(process.cwd(), "source", "interface", "src", "helpers"),
     path.resolve(process.cwd(), "source", "interface", "dist", "helpers"),
     path.resolve(process.cwd(), "src", "helpers"),

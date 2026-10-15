@@ -44,6 +44,225 @@ export const PALETTE_COLORS: Array<{ name: string; color: string; label: string 
   { name: "mint", color: "#8be9fd", label: "Mint" },
 ];
 
+export function hslToHex(h: number, s: number, l: number): string {
+  s /= 100;
+  l /= 100;
+  const k = (n: number) => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  const toHex = (x: number) => Math.round(x * 255).toString(16).padStart(2, "0");
+  return `#${toHex(f(0))}${toHex(f(8))}${toHex(f(4))}`;
+}
+
+export function hslToRgb(h: number, s: number, l: number): { r: number; g: number; b: number } {
+  s /= 100;
+  l /= 100;
+  const k = (n: number) => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return {
+    r: Math.round(f(0) * 255),
+    g: Math.round(f(8) * 255),
+    b: Math.round(f(4) * 255),
+  };
+}
+
+export function parseColorToHsl(colorStr?: string): { hue: number; lightness: number } {
+  const namedMap: Record<string, { hue: number; lightness: number }> = {
+    red: { hue: 0, lightness: 50 },
+    coral: { hue: 15, lightness: 55 },
+    amber: { hue: 35, lightness: 55 },
+    neon: { hue: 55, lightness: 60 },
+    yellow: { hue: 60, lightness: 50 },
+    green: { hue: 120, lightness: 50 },
+    emerald: { hue: 140, lightness: 47 },
+    mint: { hue: 165, lightness: 65 },
+    cyan: { hue: 180, lightness: 50 },
+    sky: { hue: 195, lightness: 50 },
+    blue: { hue: 220, lightness: 55 },
+    violet: { hue: 260, lightness: 65 },
+    magenta: { hue: 300, lightness: 50 },
+    pink: { hue: 325, lightness: 65 },
+    white: { hue: 0, lightness: 90 },
+    gray: { hue: 0, lightness: 50 },
+  };
+
+  const lower = (colorStr || "").toLowerCase().trim();
+  if (namedMap[lower]) {
+    return namedMap[lower];
+  }
+
+  if (lower.startsWith("#") && lower.length >= 7) {
+    const r = parseInt(lower.slice(1, 3), 16) / 255;
+    const g = parseInt(lower.slice(3, 5), 16) / 255;
+    const b = parseInt(lower.slice(5, 7), 16) / 255;
+
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    let h = 0;
+    const l = (max + min) / 2;
+
+    if (max !== min) {
+      const d = max - min;
+      switch (max) {
+        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+        case g: h = (b - r) / d + 2; break;
+        case b: h = (r - g) / d + 4; break;
+      }
+      h = Math.round(h * 60);
+    }
+    return {
+      hue: (h + 360) % 360,
+      lightness: Math.round(Math.max(0, Math.min(100, l * 100))),
+    };
+  }
+
+  return { hue: 180, lightness: 50 };
+}
+
+export function rgbToHsl(r: number, g: number, b: number): { hue: number; lightness: number } {
+  r = Math.max(0, Math.min(255, r)) / 255;
+  g = Math.max(0, Math.min(255, g)) / 255;
+  b = Math.max(0, Math.min(255, b)) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let h = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+    }
+    h = Math.round(h * 60);
+  }
+  return {
+    hue: (h + 360) % 360,
+    lightness: Math.round(l * 100),
+  };
+}
+
+export function parseHexToHsl(str: string): { hue: number; lightness: number } | null {
+  let clean = str.trim().replace(/^#/, "");
+  if (clean.length === 3) {
+    clean = clean.split("").map((c) => c + c).join("");
+  }
+  if (!/^[0-9a-fA-F]{6}$/.test(clean)) return null;
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  return rgbToHsl(r, g, b);
+}
+
+export function parseRgbToHsl(str: string): { hue: number; lightness: number } | null {
+  const clean = str.replace(/rgb\s*\(/i, "").replace(/\)/g, "").trim();
+  const parts = clean.split(/[,\s]+/).map((p) => p.trim()).filter(Boolean);
+  if (parts.length !== 3) return null;
+  const r = parseInt(parts[0] || "", 10);
+  const g = parseInt(parts[1] || "", 10);
+  const b = parseInt(parts[2] || "", 10);
+  if (isNaN(r) || isNaN(g) || isNaN(b)) return null;
+  if (r < 0 || r > 255 || g < 0 || g > 255 || b < 0 || b > 255) return null;
+  return rgbToHsl(r, g, b);
+}
+
+export function parseHslInput(str: string): { hue: number; lightness: number } | null {
+  const clean = str.replace(/hsl\s*\(/i, "").replace(/[%°\)]/g, "").trim();
+  const parts = clean.split(/[,\s]+/).map((p) => p.trim()).filter(Boolean);
+  if (parts.length < 2) return null;
+  const h = parseInt(parts[0] || "", 10);
+  let l = 50;
+  if (parts.length >= 3) {
+    l = parseInt(parts[2] || "", 10);
+  } else {
+    l = parseInt(parts[1] || "", 10);
+  }
+  if (isNaN(h) || isNaN(l)) return null;
+  return {
+    hue: ((h % 360) + 360) % 360,
+    lightness: Math.max(0, Math.min(100, l)),
+  };
+}
+
+export const DIAL_LEVELS = [100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0];
+
+export interface WheelChunk {
+  text: string;
+  color?: string;
+  isPointer?: boolean;
+}
+
+export function buildColorWheelRows(
+  selHue: number,
+  lightness: number,
+  size: "large" | "medium" | "compact" = "large"
+): WheelChunk[][] {
+  const configs = {
+    large: { yMax: 6, xMax: 13, maxR: 12.8, minR: 6.0, hubR: 2.8, pointerThreshold: 9.5, diffLimit: 8 },
+    medium: { yMax: 5, xMax: 11, maxR: 10.5, minR: 5.0, hubR: 2.4, pointerThreshold: 7.8, diffLimit: 10 },
+    compact: { yMax: 4, xMax: 8, maxR: 8.5, minR: 4.0, hubR: 1.9, pointerThreshold: 6.2, diffLimit: 12 },
+  };
+  const cfg = configs[size] || configs.large;
+  const rows: WheelChunk[][] = [];
+
+  for (let y = -cfg.yMax; y <= cfg.yMax; y++) {
+    const rowChunks: WheelChunk[] = [];
+    let curText = "";
+    let curColor = "";
+    let curIsPointer = false;
+
+    for (let x = -cfg.xMax; x <= cfg.xMax; x++) {
+      const r = Math.sqrt(x * x + (y * 2.1) * (y * 2.1));
+      let char = " ";
+      let color = "";
+      let isPointer = false;
+
+      if (r >= cfg.minR && r <= cfg.maxR) {
+        let angle = (Math.atan2(-y * 2.1, x) * 180) / Math.PI;
+        if (angle < 0) angle += 360;
+        let diff = Math.abs(angle - selHue);
+        if (diff > 180) diff = 360 - diff;
+        isPointer = diff < cfg.diffLimit && r >= cfg.pointerThreshold;
+        color = hslToHex(angle, 100, lightness);
+        char = isPointer ? "◉" : "█";
+      } else if (r <= cfg.hubR) {
+        color = hslToHex(selHue, 100, lightness);
+        char = "█";
+      }
+
+      if (char === " ") {
+        if (curColor === "" && !curIsPointer) {
+          curText += " ";
+        } else {
+          if (curText) rowChunks.push({ text: curText, color: curColor, isPointer: curIsPointer });
+          curText = " ";
+          curColor = "";
+          curIsPointer = false;
+        }
+      } else if (isPointer) {
+        if (curText) rowChunks.push({ text: curText, color: curColor, isPointer: curIsPointer });
+        rowChunks.push({ text: "◉", color, isPointer: true });
+        curText = "";
+        curColor = "";
+        curIsPointer = false;
+      } else {
+        if (curColor === color && !curIsPointer) {
+          curText += char;
+        } else {
+          if (curText) rowChunks.push({ text: curText, color: curColor, isPointer: curIsPointer });
+          curText = char;
+          curColor = color;
+          curIsPointer = false;
+        }
+      }
+    }
+    if (curText) rowChunks.push({ text: curText, color: curColor, isPointer: curIsPointer });
+    rows.push(rowChunks);
+  }
+  return rows;
+}
+
 // 5-Step Custom Role Wizard Function Categories (Claude Doc 21)
 export const WIZARD_FUNCTIONS: Array<{ func: RoleFunction; label: string; desc: string }> = [
   { func: "Orchestrators", label: "Orchestrator", desc: "Coordinates and plans tasks — never runs in queue" },
@@ -214,8 +433,8 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
   const localHook = useRoles();
   const hook = rolesHook || localHook;
 
-  const width = Math.max(70, terminalSize?.columns || process.stdout.columns || 80);
-  const height = Math.max(16, (terminalSize?.rows || process.stdout.rows || 24) - 1);
+  const width = Math.max(40, terminalSize?.columns || process.stdout.columns || 80);
+  const height = Math.max(10, (terminalSize?.rows || process.stdout.rows || 24) - 1);
 
   // Screen view state
   const [view, setView] = useState<"roster" | "drilldown" | "switch_agent" | "color_palette" | "edit_prompt" | "input_text" | "wizard">("roster");
@@ -236,6 +455,17 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
 
   // Color palette grid index (0 to 15)
   const [paletteIndex, setPaletteIndex] = useState(0);
+  // Color wheel state (Hue 0-359°, Lightness 0-100%)
+  const [wheelHue, setWheelHue] = useState(180);
+  const [wheelLightness, setWheelLightness] = useState(50);
+  // Color wheel focus and interactive input boxes (Requirement 10)
+  const [colorFocus, setColorFocus] = useState<"wheel" | "hex" | "rgb" | "hsl">("wheel");
+  const [hexInput, setHexInput] = useState("");
+  const [rgbInput, setRgbInput] = useState("");
+  const [hslInput, setHslInput] = useState("");
+  // Color palette vertical scroll offset for small terminal heights
+  const [colorScrollOffset, setColorScrollOffset] = useState(0);
+  const maxColorScrollRef = React.useRef(0);
 
 
   // Generic text input buffer for API key or custom path
@@ -247,9 +477,10 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
   // Feedback banner
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
 
-  // Clear feedback message whenever view transitions so it never crosses over to another page
+  // Clear feedback message and reset scroll offset whenever view transitions
   useEffect(() => {
     setFeedbackMsg(null);
+    setColorScrollOffset(0);
   }, [view]);
 
   // Auto-dismiss feedback message after 3.5 seconds so it doesn't linger indefinitely
@@ -457,14 +688,39 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
     { id: "back", label: "Back to roles (Esc)" },
   ];
 
-  // Keyboard navigation
+  // Keyboard & mouse wheel navigation
   useInput((input, key) => {
-    // Terminal mouse events (touchpad/mouse wheel, clicks) - strictly ignored for action/role navigation
+    // Detect mouse wheel / touchpad scroll events across all terminal formats
+    const isWheelUp =
+      key.pageUp ||
+      input === "\x1b[5~" ||
+      input.startsWith("\x1b[<64;") ||
+      input.includes("<64;") ||
+      input.startsWith("[<64;");
+
+    const isWheelDown =
+      key.pageDown ||
+      input === "\x1b[6~" ||
+      input.startsWith("\x1b[<65;") ||
+      input.includes("<65;") ||
+      input.startsWith("[<65;");
+
+    if (isWheelUp || isWheelDown) {
+      if (view === "color_palette") {
+        if (isWheelUp) {
+          setColorScrollOffset((prev) => Math.max(0, Math.min(maxColorScrollRef.current, prev) - 2));
+        } else {
+          setColorScrollOffset((prev) => Math.min(maxColorScrollRef.current, prev + 2));
+        }
+        return;
+      }
+      return;
+    }
+
+    // Terminal mouse events (touchpad/mouse clicks, drags) - strictly ignored
     if (
       input.startsWith("\x1b[<") ||
       input.startsWith("[<") ||
-      input.includes("<64;") ||
-      input.includes("<65;") ||
       input === "[4" ||
       /^\[<?\d*;?\d*;?\d*[Mm]?$/.test(input)
     ) {
@@ -992,35 +1248,269 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
     }
 
     // -------------------------------------------------------------------------
-    // 3. COLOR PALETTE VIEW (Requirement 9)
+    // 3. COLOR WHEEL & DARKNESS DIAL VIEW (Requirement 9 & 10)
     // -------------------------------------------------------------------------
     if (view === "color_palette" && activeRole) {
+      // Robust vertical scrolling keys: [, ], PageUp, PageDown, Shift+Up/Down, Ctrl+Up/Down
+      if (input === "[" || key.pageUp) {
+        setColorScrollOffset((prev) => Math.max(0, Math.min(maxColorScrollRef.current, prev) - 2));
+        return;
+      }
+      if (input === "]" || key.pageDown) {
+        setColorScrollOffset((prev) => Math.min(maxColorScrollRef.current, prev + 2));
+        return;
+      }
+      if ((key.shift || key.ctrl) && key.upArrow) {
+        setColorScrollOffset((prev) => Math.max(0, Math.min(maxColorScrollRef.current, prev) - 1));
+        return;
+      }
+      if ((key.shift || key.ctrl) && key.downArrow) {
+        setColorScrollOffset((prev) => Math.min(maxColorScrollRef.current, prev + 1));
+        return;
+      }
+
+      // Tab key: cycle focus between wheel, hex, rgb, hsl (with auto-scroll)
+      if (key.tab) {
+        if (key.shift) {
+          setColorFocus((prev) => {
+            if (prev === "wheel") {
+              setColorScrollOffset(12);
+              return "hsl";
+            }
+            if (prev === "hsl") return "rgb";
+            if (prev === "rgb") return "hex";
+            setColorScrollOffset(0);
+            return "wheel";
+          });
+        } else {
+          setColorFocus((prev) => {
+            if (prev === "wheel") {
+              setColorScrollOffset(12);
+              return "hex";
+            }
+            if (prev === "hex") return "rgb";
+            if (prev === "rgb") return "hsl";
+            setColorScrollOffset(0);
+            return "wheel";
+          });
+        }
+        return;
+      }
+
+      // Escape key: exit input box back to wheel, or exit color picker back to drilldown
       if (key.escape) {
-        setView("drilldown");
+        if (colorFocus !== "wheel") {
+          setColorScrollOffset(0);
+          setColorFocus("wheel");
+        } else {
+          setView("drilldown");
+        }
         return;
       }
-      // 4x4 Grid navigation:
-      if (key.leftArrow) {
-        setPaletteIndex((prev) => (prev > 0 ? prev - 1 : PALETTE_COLORS.length - 1));
+
+      // FOCUS: WHEEL
+      if (colorFocus === "wheel") {
+        // w/s scrolling in wheel mode
+        if (input === "w" || input === "W") {
+          setColorScrollOffset((prev) => Math.max(0, Math.min(maxColorScrollRef.current, prev) - 2));
+          return;
+        }
+        if (input === "s" || input === "S") {
+          setColorScrollOffset((prev) => Math.min(maxColorScrollRef.current, prev + 2));
+          return;
+        }
+
+        // Enter on wheel saves the color to role and exits to drilldown
+        if (key.return) {
+          const pickedHex = hslToHex(wheelHue, 100, wheelLightness);
+          hook.setColor(activeRole.slug, pickedHex);
+          setFeedbackMsg(`Role color for ${activeRole.name} updated to ${pickedHex.toUpperCase()}.`);
+          setView("drilldown");
+          return;
+        }
+
+        let nextHue = wheelHue;
+        let nextLightness = wheelLightness;
+        let changed = false;
+
+        if (key.leftArrow) {
+          nextHue = (wheelHue - 10 + 360) % 360;
+          changed = true;
+        } else if (key.rightArrow) {
+          nextHue = (wheelHue + 10) % 360;
+          changed = true;
+        } else if (key.upArrow) {
+          if (wheelLightness < 100) {
+            nextLightness = Math.min(100, Math.round((wheelLightness + 10) / 10) * 10);
+            changed = true;
+          } else {
+            // At top edge, Up arrow scrolls up
+            setColorScrollOffset((prev) => Math.max(0, prev - 1));
+          }
+        } else if (key.downArrow) {
+          if (wheelLightness > 0) {
+            nextLightness = Math.max(0, Math.round((wheelLightness - 10) / 10) * 10);
+            changed = true;
+          } else {
+            // At bottom edge, Down arrow scrolls down
+            setColorScrollOffset((prev) => prev + 1);
+          }
+        }
+
+        if (changed) {
+          setWheelHue(nextHue);
+          setWheelLightness(nextLightness);
+          setHexInput(hslToHex(nextHue, 100, nextLightness).toUpperCase());
+          const rgb = hslToRgb(nextHue, 100, nextLightness);
+          setRgbInput(`${rgb.r}, ${rgb.g}, ${rgb.b}`);
+          setHslInput(`${nextHue}, 100, ${nextLightness}`);
+        }
         return;
       }
-      if (key.rightArrow) {
-        setPaletteIndex((prev) => (prev < PALETTE_COLORS.length - 1 ? prev + 1 : 0));
+
+      // FOCUS: HEX INPUT
+      if (colorFocus === "hex") {
+        if (key.return) {
+          const parsed = parseHexToHsl(hexInput);
+          if (parsed) {
+            setWheelHue(parsed.hue);
+            setWheelLightness(parsed.lightness);
+            setHexInput(hslToHex(parsed.hue, 100, parsed.lightness).toUpperCase());
+            const rgb = hslToRgb(parsed.hue, 100, parsed.lightness);
+            setRgbInput(`${rgb.r}, ${rgb.g}, ${rgb.b}`);
+            setHslInput(`${parsed.hue}, 100, ${parsed.lightness}`);
+          } else {
+            setHexInput(hslToHex(wheelHue, 100, wheelLightness).toUpperCase());
+          }
+          setColorScrollOffset(0);
+          setColorFocus("wheel");
+          return;
+        }
+        if (key.backspace || key.delete) {
+          const nextVal = hexInput.slice(0, -1);
+          setHexInput(nextVal);
+          const parsed = parseHexToHsl(nextVal);
+          if (parsed) {
+            setWheelHue(parsed.hue);
+            setWheelLightness(parsed.lightness);
+            const rgb = hslToRgb(parsed.hue, 100, parsed.lightness);
+            setRgbInput(`${rgb.r}, ${rgb.g}, ${rgb.b}`);
+            setHslInput(`${parsed.hue}, 100, ${parsed.lightness}`);
+          }
+          return;
+        }
+        if (input && !key.ctrl && !key.meta) {
+          if (/^[0-9a-fA-F#]$/.test(input) && hexInput.length < 7) {
+            const nextVal = hexInput + input.toUpperCase();
+            setHexInput(nextVal);
+            const parsed = parseHexToHsl(nextVal);
+            if (parsed) {
+              setWheelHue(parsed.hue);
+              setWheelLightness(parsed.lightness);
+              const rgb = hslToRgb(parsed.hue, 100, parsed.lightness);
+              setRgbInput(`${rgb.r}, ${rgb.g}, ${rgb.b}`);
+              setHslInput(`${parsed.hue}, 100, ${parsed.lightness}`);
+            }
+          }
+          return;
+        }
         return;
       }
-      if (key.upArrow) {
-        setPaletteIndex((prev) => (prev >= 4 ? prev - 4 : prev + 12));
+
+      // FOCUS: RGB INPUT
+      if (colorFocus === "rgb") {
+        if (key.return) {
+          const parsed = parseRgbToHsl(rgbInput);
+          if (parsed) {
+            setWheelHue(parsed.hue);
+            setWheelLightness(parsed.lightness);
+            setHexInput(hslToHex(parsed.hue, 100, parsed.lightness).toUpperCase());
+            const rgb = hslToRgb(parsed.hue, 100, parsed.lightness);
+            setRgbInput(`${rgb.r}, ${rgb.g}, ${rgb.b}`);
+            setHslInput(`${parsed.hue}, 100, ${parsed.lightness}`);
+          } else {
+            const rgb = hslToRgb(wheelHue, 100, wheelLightness);
+            setRgbInput(`${rgb.r}, ${rgb.g}, ${rgb.b}`);
+          }
+          setColorScrollOffset(0);
+          setColorFocus("wheel");
+          return;
+        }
+        if (key.backspace || key.delete) {
+          const nextVal = rgbInput.slice(0, -1);
+          setRgbInput(nextVal);
+          const parsed = parseRgbToHsl(nextVal);
+          if (parsed) {
+            setWheelHue(parsed.hue);
+            setWheelLightness(parsed.lightness);
+            setHexInput(hslToHex(parsed.hue, 100, parsed.lightness).toUpperCase());
+            setHslInput(`${parsed.hue}, 100, ${parsed.lightness}`);
+          }
+          return;
+        }
+        if (input && !key.ctrl && !key.meta) {
+          if (/^[0-9,\s]$/.test(input) && rgbInput.length < 16) {
+            const nextVal = rgbInput + input;
+            setRgbInput(nextVal);
+            const parsed = parseRgbToHsl(nextVal);
+            if (parsed) {
+              setWheelHue(parsed.hue);
+              setWheelLightness(parsed.lightness);
+              setHexInput(hslToHex(parsed.hue, 100, parsed.lightness).toUpperCase());
+              setHslInput(`${parsed.hue}, 100, ${parsed.lightness}`);
+            }
+          }
+          return;
+        }
         return;
       }
-      if (key.downArrow) {
-        setPaletteIndex((prev) => (prev + 4 < PALETTE_COLORS.length ? prev + 4 : prev % 4));
-        return;
-      }
-      if (key.return) {
-        const picked = PALETTE_COLORS[paletteIndex]?.color || "cyan";
-        hook.setColor(activeRole.slug, picked);
-        setFeedbackMsg(`Role color for ${activeRole.name} updated to ${PALETTE_COLORS[paletteIndex]?.label}.`);
-        setView("drilldown");
+
+      // FOCUS: HSL INPUT
+      if (colorFocus === "hsl") {
+        if (key.return) {
+          const parsed = parseHslInput(hslInput);
+          if (parsed) {
+            setWheelHue(parsed.hue);
+            setWheelLightness(parsed.lightness);
+            setHexInput(hslToHex(parsed.hue, 100, parsed.lightness).toUpperCase());
+            const rgb = hslToRgb(parsed.hue, 100, parsed.lightness);
+            setRgbInput(`${rgb.r}, ${rgb.g}, ${rgb.b}`);
+            setHslInput(`${parsed.hue}, 100, ${parsed.lightness}`);
+          } else {
+            setHslInput(`${wheelHue}, 100, ${wheelLightness}`);
+          }
+          setColorScrollOffset(0);
+          setColorFocus("wheel");
+          return;
+        }
+        if (key.backspace || key.delete) {
+          const nextVal = hslInput.slice(0, -1);
+          setHslInput(nextVal);
+          const parsed = parseHslInput(nextVal);
+          if (parsed) {
+            setWheelHue(parsed.hue);
+            setWheelLightness(parsed.lightness);
+            setHexInput(hslToHex(parsed.hue, 100, parsed.lightness).toUpperCase());
+            const rgb = hslToRgb(parsed.hue, 100, parsed.lightness);
+            setRgbInput(`${rgb.r}, ${rgb.g}, ${rgb.b}`);
+          }
+          return;
+        }
+        if (input && !key.ctrl && !key.meta) {
+          if (/^[0-9,\s]$/.test(input) && hslInput.length < 16) {
+            const nextVal = hslInput + input;
+            setHslInput(nextVal);
+            const parsed = parseHslInput(nextVal);
+            if (parsed) {
+              setWheelHue(parsed.hue);
+              setWheelLightness(parsed.lightness);
+              setHexInput(hslToHex(parsed.hue, 100, parsed.lightness).toUpperCase());
+              const rgb = hslToRgb(parsed.hue, 100, parsed.lightness);
+              setRgbInput(`${rgb.r}, ${rgb.g}, ${rgb.b}`);
+            }
+          }
+          return;
+        }
         return;
       }
       return;
@@ -1170,9 +1660,14 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
           hook.setAutonomy(activeRole.slug, next);
           setFeedbackMsg(`Autonomy set to: ${next.toUpperCase()}`);
         } else if (action.id === "role_color") {
-          // Find current color index
-          const curIdx = PALETTE_COLORS.findIndex((c) => c.color === activeRole.color);
-          setPaletteIndex(curIdx >= 0 ? curIdx : 0);
+          const { hue, lightness } = parseColorToHsl(activeRole.color);
+          setWheelHue(hue);
+          setWheelLightness(lightness);
+          setColorFocus("wheel");
+          setHexInput(hslToHex(hue, 100, lightness).toUpperCase());
+          const rgb = hslToRgb(hue, 100, lightness);
+          setRgbInput(`${rgb.r}, ${rgb.g}, ${rgb.b}`);
+          setHslInput(`${hue}, 100, ${lightness}`);
           setView("color_palette");
         } else if (action.id === "edit_prompt") {
           setView("edit_prompt");
@@ -1572,57 +2067,339 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
   }
 
   // ---------------------------------------------------------------------------
-  // RENDER: COLOR PALETTE SCREEN (Requirement 9 & 10)
+  // RENDER: COLOR WHEEL & DARKNESS DIAL SCREEN (Requirement 9 & 10)
   // ---------------------------------------------------------------------------
   if (view === "color_palette" && activeRole) {
-    const selectedColorObj = PALETTE_COLORS[paletteIndex] || PALETTE_COLORS[0]!;
+    const currentColorHex = hslToHex(wheelHue, 100, wheelLightness);
+    const rgb = hslToRgb(wheelHue, 100, wheelLightness);
+
+    // Responsive wheel sizing based on terminal width and height
+    const wheelSize: "large" | "medium" | "compact" =
+      width >= 72 && height >= 24 ? "large" : width >= 56 && height >= 20 ? "medium" : "compact";
+    const wheelRows = buildColorWheelRows(wheelHue, wheelLightness, wheelSize);
+
+    // Dynamic dial levels adapting to wheel size
+    const dialLevels =
+      wheelSize === "compact"
+        ? [100, 80, 60, 40, 20, 0]
+        : [100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0];
+
+    const allRows: React.ReactNode[] = [];
+
+    // Row 0: Role Name and Title
+    allRows.push(
+      <Box key="row-title" justifyContent="center" width="100%" paddingX={1}>
+        <Text wrap="wrap">
+          <Text bold color="white">Role Color Wheel: </Text>
+          <Text bold color={currentColorHex}>{activeRole.name}</Text>
+        </Text>
+      </Box>
+    );
+
+    // Row 1: Original -> Selected
+    allRows.push(
+      <Box key="row-status" justifyContent="center" width="100%" paddingX={1}>
+        <Text wrap="wrap">
+          <Text color="gray">Original: </Text>
+          <Text bold color={activeRole.color as any}>■ {activeRole.color}</Text>
+          <Text color="gray">   →   Selected: </Text>
+          <Text bold color={currentColorHex}>■ {currentColorHex.toUpperCase()}</Text>
+        </Text>
+      </Box>
+    );
+
+    // Row 2: Spacer
+    allRows.push(
+      <Box key="spacer-1" height={1} justifyContent="center" width="100%">
+        <Text> </Text>
+      </Box>
+    );
+
+    // Middle rows: Wheel + Dial (1 row per index)
+    const wheelGap = width >= 72 ? 5 : width >= 56 ? 3 : 2;
+    const dialWidth = wheelSize === "compact" ? 12 : 14;
+
+    for (let rIdx = 0; rIdx < wheelRows.length; rIdx++) {
+      let dialNode: React.ReactNode = <Text> </Text>;
+      if (wheelSize === "compact") {
+        if (rIdx === 0) {
+          dialNode = <Text color="gray" bold>▲ Lighter</Text>;
+        } else if (rIdx >= 1 && rIdx <= 6) {
+          const lvl = dialLevels[rIdx - 1]!;
+          const isCur = Math.abs(wheelLightness - lvl) <= 9;
+          const lvlHex = hslToHex(wheelHue, 100, lvl);
+          dialNode = (
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Text color={lvlHex as any}>████</Text>
+              <Text color={isCur ? "cyan" : "gray"} bold={isCur}>
+                {String(lvl).padStart(3, " ")}%
+              </Text>
+              <Text color="cyan" bold>
+                {isCur ? " ◀" : "  "}
+              </Text>
+            </Box>
+          );
+        } else if (rIdx === 7) {
+          dialNode = <Text color="gray" bold>▼ Darker</Text>;
+        }
+      } else {
+        if (rIdx === 0) {
+          dialNode = <Text color="gray" bold>▲ Lighter</Text>;
+        } else if (rIdx === wheelRows.length - 1) {
+          dialNode = <Text color="gray" bold>▼ Darker</Text>;
+        } else if (rIdx - 1 < dialLevels.length) {
+          const lvl = dialLevels[rIdx - 1]!;
+          const isCur = Math.abs(wheelLightness - lvl) <= 5;
+          const lvlHex = hslToHex(wheelHue, 100, lvl);
+          dialNode = (
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Text color={lvlHex as any}>████</Text>
+              <Text color={isCur ? "cyan" : "gray"} bold={isCur}>
+                {String(lvl).padStart(3, " ")}%
+              </Text>
+              <Text color="cyan" bold>
+                {isCur ? " ◀" : "  "}
+              </Text>
+            </Box>
+          );
+        }
+      }
+
+      allRows.push(
+        <Box
+          key={`wheel-row-${rIdx}`}
+          flexDirection="row"
+          gap={wheelGap}
+          justifyContent="center"
+          alignItems="center"
+          width="100%"
+        >
+          <Box flexDirection="row" flexShrink={0}>
+            {wheelRows[rIdx]!.map((chunk, cIdx) => (
+              <Text key={cIdx} color={chunk.color ? (chunk.color as any) : undefined} bold={chunk.isPointer}>
+                {chunk.text}
+              </Text>
+            ))}
+          </Box>
+          <Box width={dialWidth} flexShrink={0}>{dialNode}</Box>
+        </Box>
+      );
+    }
+
+    // Spacer
+    allRows.push(
+      <Box key="spacer-2" height={1} justifyContent="center" width="100%">
+        <Text> </Text>
+      </Box>
+    );
+
+    // Interactive Input Boxes:
+    if (width >= 70) {
+      allRows.push(
+        <Box key="box-top" flexDirection="row" gap={2} justifyContent="center" width="100%" flexShrink={0}>
+          <Text color={colorFocus === "hex" ? "cyan" : "gray"}>╭────────────────╮</Text>
+          <Text color={colorFocus === "rgb" ? "cyan" : "gray"}>╭────────────────────╮</Text>
+          <Text color={colorFocus === "hsl" ? "cyan" : "gray"}>╭────────────────────╮</Text>
+        </Box>
+      );
+      allRows.push(
+        <Box key="box-mid" flexDirection="row" gap={2} justifyContent="center" width="100%" flexShrink={0}>
+          <Box flexDirection="row" width={18}>
+            <Text color={colorFocus === "hex" ? "cyan" : "gray"}>│ </Text>
+            <Text bold color={colorFocus === "hex" ? "cyan" : "gray"}>HEX: </Text>
+            <Text color={colorFocus === "hex" ? "white" : "gray"}>{hexInput}</Text>
+            {colorFocus === "hex" && <Text color="cyan">|</Text>}
+            <Text color={colorFocus === "hex" ? "cyan" : "gray"}>{" ".repeat(Math.max(0, 7 - hexInput.length))} │</Text>
+          </Box>
+          <Box flexDirection="row" width={22}>
+            <Text color={colorFocus === "rgb" ? "cyan" : "gray"}>│ </Text>
+            <Text bold color={colorFocus === "rgb" ? "cyan" : "gray"}>RGB: </Text>
+            <Text color={colorFocus === "rgb" ? "white" : "gray"}>{rgbInput}</Text>
+            {colorFocus === "rgb" && <Text color="cyan">|</Text>}
+            <Text color={colorFocus === "rgb" ? "cyan" : "gray"}>{" ".repeat(Math.max(0, 11 - rgbInput.length))} │</Text>
+          </Box>
+          <Box flexDirection="row" width={22}>
+            <Text color={colorFocus === "hsl" ? "cyan" : "gray"}>│ </Text>
+            <Text bold color={colorFocus === "hsl" ? "cyan" : "gray"}>HSL: </Text>
+            <Text color={colorFocus === "hsl" ? "white" : "gray"}>{hslInput}</Text>
+            {colorFocus === "hsl" && <Text color="cyan">|</Text>}
+            <Text color={colorFocus === "hsl" ? "cyan" : "gray"}>{" ".repeat(Math.max(0, 11 - hslInput.length))} │</Text>
+          </Box>
+        </Box>
+      );
+      allRows.push(
+        <Box key="box-bot" flexDirection="row" gap={2} justifyContent="center" width="100%" flexShrink={0}>
+          <Text color={colorFocus === "hex" ? "cyan" : "gray"}>╰────────────────╯</Text>
+          <Text color={colorFocus === "rgb" ? "cyan" : "gray"}>╰────────────────────╯</Text>
+          <Text color={colorFocus === "hsl" ? "cyan" : "gray"}>╰────────────────────╯</Text>
+        </Box>
+      );
+    } else if (width >= 48) {
+      // 2-row rounded layout
+      allRows.push(
+        <Box key="box-compact-1" flexDirection="row" gap={2} justifyContent="center" width="100%" flexShrink={0}>
+          <Box borderStyle="round" borderColor={colorFocus === "hex" ? "cyan" : "gray"} paddingX={1}>
+            <Text bold color={colorFocus === "hex" ? "cyan" : "gray"}>HEX: </Text>
+            <Text color={colorFocus === "hex" ? "white" : "gray"}>{hexInput}</Text>
+            {colorFocus === "hex" && <Text color="cyan">|</Text>}
+          </Box>
+          <Box borderStyle="round" borderColor={colorFocus === "rgb" ? "cyan" : "gray"} paddingX={1}>
+            <Text bold color={colorFocus === "rgb" ? "cyan" : "gray"}>RGB: </Text>
+            <Text color={colorFocus === "rgb" ? "white" : "gray"}>{rgbInput}</Text>
+            {colorFocus === "rgb" && <Text color="cyan">|</Text>}
+          </Box>
+        </Box>
+      );
+      allRows.push(
+        <Box key="box-compact-2" flexDirection="row" justifyContent="center" width="100%" flexShrink={0}>
+          <Box borderStyle="round" borderColor={colorFocus === "hsl" ? "cyan" : "gray"} paddingX={1}>
+            <Text bold color={colorFocus === "hsl" ? "cyan" : "gray"}>HSL: </Text>
+            <Text color={colorFocus === "hsl" ? "white" : "gray"}>{hslInput}</Text>
+            {colorFocus === "hsl" && <Text color="cyan">|</Text>}
+          </Box>
+        </Box>
+      );
+    } else {
+      // Ultra-narrow: 1 box per line
+      allRows.push(
+        <Box key="box-narrow-hex" flexDirection="row" justifyContent="center" width="100%" flexShrink={0}>
+          <Box borderStyle="round" borderColor={colorFocus === "hex" ? "cyan" : "gray"} paddingX={1}>
+            <Text bold color={colorFocus === "hex" ? "cyan" : "gray"}>HEX: </Text>
+            <Text color={colorFocus === "hex" ? "white" : "gray"}>{hexInput}</Text>
+            {colorFocus === "hex" && <Text color="cyan">|</Text>}
+          </Box>
+        </Box>
+      );
+      allRows.push(
+        <Box key="box-narrow-rgb" flexDirection="row" justifyContent="center" width="100%" flexShrink={0}>
+          <Box borderStyle="round" borderColor={colorFocus === "rgb" ? "cyan" : "gray"} paddingX={1}>
+            <Text bold color={colorFocus === "rgb" ? "cyan" : "gray"}>RGB: </Text>
+            <Text color={colorFocus === "rgb" ? "white" : "gray"}>{rgbInput}</Text>
+            {colorFocus === "rgb" && <Text color="cyan">|</Text>}
+          </Box>
+        </Box>
+      );
+      allRows.push(
+        <Box key="box-narrow-hsl" flexDirection="row" justifyContent="center" width="100%" flexShrink={0}>
+          <Box borderStyle="round" borderColor={colorFocus === "hsl" ? "cyan" : "gray"} paddingX={1}>
+            <Text bold color={colorFocus === "hsl" ? "cyan" : "gray"}>HSL: </Text>
+            <Text color={colorFocus === "hsl" ? "white" : "gray"}>{hslInput}</Text>
+            {colorFocus === "hsl" && <Text color="cyan">|</Text>}
+          </Box>
+        </Box>
+      );
+    }
+
+    // Spacer
+    allRows.push(
+      <Box key="spacer-3" height={1} justifyContent="center" width="100%">
+        <Text> </Text>
+      </Box>
+    );
+
+    // Format Note
+    allRows.push(
+      <Box key="format-note" justifyContent="center" width="100%" paddingX={1}>
+        <Text color="gray" wrap="wrap">
+          {width < 64
+            ? "Note: HEX (#RRGGBB) │ RGB (0-255) │ HSL (0-360, 0-100)"
+            : "Note: Format as HEX (#RRGGBB), RGB (R, G, B: 0-255), HSL (H, S, L: 0-360, 0-100, 0-100)"}
+        </Text>
+      </Box>
+    );
+
+    // Divider Line 1
+    const dividerLength = Math.max(10, Math.min(width - 6, width >= 72 ? 66 : 46));
+    allRows.push(
+      <Box key="divider-1" width="100%" justifyContent="center">
+        <Text color="gray">{"─".repeat(dividerLength)}</Text>
+      </Box>
+    );
+
+    // Live Preview
+    allRows.push(
+      <Box key="live-preview" justifyContent="center" width="100%" paddingX={1}>
+        <Text wrap="wrap">
+          <Text bold color="gray">Live Chat Preview: </Text>
+          <Text bold color={currentColorHex}>[{activeRole.name}]</Text>
+          <Text color="white">
+            {width < 64 ? " Writing LoginForm.tsx" : " Writing LoginForm.tsx (type contracts verified)"}
+          </Text>
+        </Text>
+      </Box>
+    );
+
+    // Divider Line 2
+    allRows.push(
+      <Box key="divider-2" width="100%" justifyContent="center">
+        <Text color="gray">{"─".repeat(dividerLength)}</Text>
+      </Box>
+    );
+
+    // Spacer
+    allRows.push(
+      <Box key="spacer-4" height={1} justifyContent="center" width="100%">
+        <Text> </Text>
+      </Box>
+    );
+
+    // Footer Shortcuts & Scroll calculation
+    const availableHeight = height;
+    const totalColorRows = allRows.length + 1;
+    const needsScroll = totalColorRows > availableHeight;
+    const maxScroll = Math.max(0, totalColorRows - availableHeight);
+    maxColorScrollRef.current = maxScroll;
+    const clampedOffset = Math.max(0, Math.min(maxScroll, colorScrollOffset));
+
+    allRows.push(
+      <Box key="footer-shortcuts" justifyContent="center" width="100%" paddingX={1}>
+        <Text color="gray" wrap="wrap">
+          {colorFocus === "wheel"
+            ? (width < 64
+                ? "Arrows: dial/wheel │ Scroll: mouse wheel / PgUp / PgDn │ Tab: inputs │ Enter: save"
+                : (needsScroll
+                    ? "Left/Right: wheel   Up/Down: dial   Scroll: mouse wheel / PgUp / PgDn   Tab: inputs   Enter: save   Esc: cancel"
+                    : "Left/Right: rotate wheel   Up/Down: darkness   Tab: edit inputs   Enter: save   Esc: cancel"))
+            : "Type value   Enter: apply to wheel   Tab: next field   Esc: wheel"}
+        </Text>
+      </Box>
+    );
+
+    const visibleRows = needsScroll
+      ? allRows.slice(clampedOffset, clampedOffset + availableHeight)
+      : allRows;
+
+    const scrollbarRows: { index: number; isThumb: boolean }[] = [];
+    if (needsScroll) {
+      const scrollbarHeight = availableHeight;
+      const thumbHeight = Math.max(
+        1,
+        Math.min(scrollbarHeight - 1, Math.round((availableHeight / allRows.length) * scrollbarHeight))
+      );
+      const scrollRatio = maxScroll > 0 ? clampedOffset / maxScroll : 0;
+      const maxThumbTop = scrollbarHeight - thumbHeight;
+      const thumbTop = Math.min(maxThumbTop, Math.max(0, Math.round(scrollRatio * maxThumbTop)));
+
+      for (let i = 0; i < scrollbarHeight; i++) {
+        const isThumb = i >= thumbTop && i < thumbTop + thumbHeight;
+        scrollbarRows.push({ index: i, isThumb });
+      }
+    }
 
     return (
-      <Box flexDirection="column" width={width} paddingX={1} paddingY={0}>
-        <Text bold color="cyan">
-          Role Color Palette for {activeRole.name}
-        </Text>
-        <Text color="gray">Select a color to style role output tags in the chat stream.</Text>
-
-        {/* 4x4 Visual Color Grid */}
-        <Box marginY={1} flexDirection="column">
-          {[0, 1, 2, 3].map((rowIdx) => (
-            <Box key={rowIdx} flexDirection="row" gap={2} marginY={0}>
-              {[0, 1, 2, 3].map((colIdx) => {
-                const itemIdx = rowIdx * 4 + colIdx;
-                const item = PALETTE_COLORS[itemIdx];
-                if (!item) return null;
-                const isSelected = itemIdx === paletteIndex;
-
-                return (
-                  <Box key={item.name} width={16} paddingX={1} borderStyle={isSelected ? "round" : undefined} borderColor={isSelected ? "white" : undefined}>
-                    <Text color={item.color as any} bold={isSelected}>
-                      {isSelected ? "> " : "  "}■ {item.label}
-                    </Text>
-                  </Box>
-                );
-              })}
-            </Box>
-          ))}
+      <Box flexDirection="row" width={width} height={availableHeight} paddingX={1} paddingY={0}>
+        <Box flexDirection="column" width={needsScroll ? width - 4 : width - 2} alignItems="center">
+          {visibleRows}
         </Box>
-
-        {/* Live Chat Tag Preview Banner */}
-        <Box marginY={1} flexDirection="column">
-          <Text color="gray">{"─".repeat(Math.max(10, width - 4))}</Text>
-          <Text bold color="gray">Live Chat Preview:</Text>
-          <Box marginTop={0}>
-            <Text bold color={selectedColorObj.color as any}>
-              [{activeRole.name}]
-            </Text>
-            <Text> Writing LoginForm.tsx (type contracts verified)</Text>
+        {needsScroll && (
+          <Box flexDirection="column" width={1} height={availableHeight} paddingLeft={1} flexShrink={0}>
+            {scrollbarRows.map((row) => (
+              <Box key={row.index} height={1}>
+                {row.isThumb ? <Text color="cyan" bold>█</Text> : <Text> </Text>}
+              </Box>
+            ))}
           </Box>
-          <Text color="gray">{"─".repeat(Math.max(10, width - 4))}</Text>
-        </Box>
-
-        <Box marginTop={1} flexDirection="column" flexShrink={0}>
-          <Text color="gray">{"─".repeat(Math.max(10, width - 4))}</Text>
-          <Text color="gray">Arrows: navigate palette grid   Enter: select color   Esc: cancel</Text>
-        </Box>
+        )}
       </Box>
     );
   }

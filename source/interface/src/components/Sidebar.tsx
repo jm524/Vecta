@@ -36,7 +36,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <Box
       flexDirection="column"
-      width={28}
+      width={30}
       height={height}
       borderStyle="round"
       borderColor="gray"
@@ -45,9 +45,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     >
       {/* Mode Indicator Widget at top of sidebar (Requirement 6) */}
       <Box flexDirection="column" marginBottom={1}>
-        <Text bold dimColor>
-          MODE
-        </Text>
+        <Box flexDirection="row">
+          <Text bold dimColor>
+            MODE{" "}
+          </Text>
+          <Text dimColor>
+            (Press Tab To Switch)
+          </Text>
+        </Box>
         <Text bold color={mode === "PLANNING" ? "cyan" : "green"}>
           [{mode === "PLANNING" ? "PLAN" : "BUILD"}]
         </Text>

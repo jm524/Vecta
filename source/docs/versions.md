@@ -138,3 +138,15 @@
 - Isolated tab-scoped feedback messages with 3.5s auto-dismiss timers, dedicated 1-line slots, and responsive layout adapting so shortcuts never get pushed off screen.
 - Formatted model download commands as separate bullet points below each recommendation.
 
+### v0.0.12 — October 15, 2026
+#### Added
+- Dedicated `/prompt` system: interactive `PromptRolePicker` role selector with real-time prompt previews, word counts, and direct `/prompt <role>` / `/<role> prompt` bypass shortcuts.
+- Interactive `PromptEditor` enforcing 300-word constraint with reactive color-coded word thresholds, forward-delete ANSI compatibility (`\x1b[3~`), borderless design, and newline support.
+- Architectural terminology standardization: fully purged legacy `customInstructions` and `currentPrompt` across all role definitions, bridge schemas, and `.vecta` stores, establishing `defaultPrompt` (immutable system identity) and `prompt` (user-editable instructions) as the canonical contract.
+- Visual Color Picker Wheel for role colors in `/agent roles`: 12-hue ANSI color wheel with 3 responsive presets (`large`, `medium`, `compact`), 100%-0% darkness dial with indicator `◀`, real-time HEX (`#RRGGBB`), RGB (`R, G, B`), and HSL (`H, S, L`) interactive inputs with Tab cycling and live conversion, and a live chat preview line.
+- Native Windows Keyboard Modifier Monitor: implemented native Go helper `keymonitor.go` polling Win32 `GetAsyncKeyState` compiled to `keymonitor.exe`, paired with multi-path candidate resolution in `keyboard.ts`, enabling universal `Shift + Enter` multi-line newlines in terminal chat across Windows, macOS, and Linux while strictly ignoring `Ctrl + Enter`.
+- Responsive layout and zero-collapse text wrapping: unified `<Text wrap="wrap">` blocks for titles, live previews, notes, and footers, preventing Yoga flex-shrink text crushing on terminal resize. Added responsive 3-tier input box layouts, responsive wheel gaps, and bounded touchpad / mouse wheel scrolling.
+- Updated Windows build pipeline `source/scripts/build.ps1` to automatically build `keymonitor.exe` into `dist/helpers/`.
+- Appended `(Press Tab To Switch)` next to `MODE` in `Sidebar.tsx` and updated README Kanban milestones.
+
+
