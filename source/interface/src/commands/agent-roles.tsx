@@ -10,11 +10,13 @@
 // 7. Full-terminal sizing with zero word overlapping or collapsing.
 // 8. Plain 5th-grader explanations and strictly zero emojis.
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Box, Text, useInput } from "ink";
 import { useRoles, countWords, type UseRolesReturn } from "../hooks/useRoles.js";
 import { type RoleDefinition, type RoleFunction, stripLayer1Rules } from "../../../roles/base.js";
+import { PromptEditor, truncateTo300Words } from "./prompt-editor.js";
 import type { HardwareInfo } from "../types/bridge.js";
+import { isShiftEnter } from "../helpers/keyboard.js";
 
 export interface AgentRolesProps {
   onClose: () => void;
@@ -235,10 +237,6 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
   // Color palette grid index (0 to 15)
   const [paletteIndex, setPaletteIndex] = useState(0);
 
-  // Edit prompt state with scrolling support (Requirement 4 & 5)
-  const [promptBuffer, setPromptBuffer] = useState("");
-  const [promptScrollOffset, setPromptScrollOffset] = useState(0);
-  const [promptLineCursor, setPromptLineCursor] = useState(0);
 
   // Generic text input buffer for API key or custom path
   const [textBuffer, setTextBuffer] = useState("");
@@ -263,8 +261,8 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
     return () => clearTimeout(timer);
   }, [feedbackMsg]);
 
-  // 5-Step Wizard state for custom roles (Claude Doc 21)
-  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  // 4-Step Wizard state for custom roles
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1);
   const [wizardFuncIndex, setWizardFuncIndex] = useState(1); // default Builders
   const [wizardAgentIndex, setWizardAgentIndex] = useState(0); // default Detected Models
   const [browsingWizardDetectedModels, setBrowsingWizardDetectedModels] = useState(false);
@@ -278,7 +276,7 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
     customPath?: string;
     apiKey?: string;
     basePrompt: string;
-    customInstructions: string;
+    prompt: string;
   }>({
     name: "",
     roleFunction: "Builders",
@@ -286,8 +284,78 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
     model: "No Agent",
     assignmentType: "local",
     basePrompt: "",
-    customInstructions: "",
+    prompt: "",
   });
+
+  const [wizardNameCursor, setWizardNameCursor] = useState(0);
+  const [wizardPromptCursor, setWizardPromptCursor] = useState(0);
+
+  // Synchronous refs to prevent stale closure when holding backspace/delete in wizard
+  const wizardDataRef = React.useRef(wizardData);
+  wizardDataRef.current = wizardData;
+  const wizardNameCursorRef = React.useRef(wizardNameCursor);
+  wizardNameCursorRef.current = wizardNameCursor;
+  const wizardPromptCursorRef = React.useRef(wizardPromptCursor);
+  wizardPromptCursorRef.current = wizardPromptCursor;
+
+  // Multi-line cursor and line calculations for Wizard Step 4 (Prompt canvas with '>' line indicator)
+  const { wizardLines, wizardCursorLine, wizardCursorCol } = useMemo(() => {
+    const rawLines = (wizardData.basePrompt || "").split("\n");
+    let cLine = 0;
+    let cCol = 0;
+    let charOffset = 0;
+
+    for (let i = 0; i < rawLines.length; i++) {
+      const lineLen = rawLines[i]!.length;
+      if (wizardPromptCursor >= charOffset && wizardPromptCursor <= charOffset + lineLen) {
+        cLine = i;
+        cCol = wizardPromptCursor - charOffset;
+        break;
+      }
+      charOffset += lineLen + 1;
+    }
+
+    return {
+      wizardLines: rawLines,
+      wizardCursorLine: cLine,
+      wizardCursorCol: cCol,
+    };
+  }, [wizardData.basePrompt, wizardPromptCursor]);
+
+  const maxWizardVisibleLines = Math.max(4, height - 12);
+  const wizardScrollOffset = useMemo(() => {
+    if (wizardCursorLine < maxWizardVisibleLines) {
+      return 0;
+    }
+    return wizardCursorLine - maxWizardVisibleLines + 1;
+  }, [wizardCursorLine, maxWizardVisibleLines]);
+
+  const visibleWizardLines = wizardLines.slice(
+    wizardScrollOffset,
+    wizardScrollOffset + maxWizardVisibleLines
+  );
+
+  const wizardScrollbarRows = useMemo(() => {
+    if (wizardLines.length <= maxWizardVisibleLines) {
+      return [];
+    }
+    const scrollbarHeight = maxWizardVisibleLines;
+    const thumbHeight = Math.max(
+      1,
+      Math.min(scrollbarHeight - 1, Math.round((maxWizardVisibleLines / wizardLines.length) * scrollbarHeight))
+    );
+    const maxScroll = wizardLines.length - maxWizardVisibleLines;
+    const scrollRatio = maxScroll > 0 ? wizardScrollOffset / maxScroll : 0;
+    const maxThumbTop = scrollbarHeight - thumbHeight;
+    const thumbTop = Math.min(maxThumbTop, Math.max(0, Math.round(scrollRatio * maxThumbTop)));
+
+    const rows = [];
+    for (let i = 0; i < scrollbarHeight; i++) {
+      const isThumb = i >= thumbTop && i < thumbTop + thumbHeight;
+      rows.push({ index: i, isThumb });
+    }
+    return rows;
+  }, [wizardLines.length, maxWizardVisibleLines, wizardScrollOffset]);
 
   // Active role lookup
   const activeRole: RoleDefinition | undefined = hook.roles.find((r) => r.slug === selectedRoleSlug);
@@ -379,7 +447,11 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
         ]
       : []),
     { id: "role_color", label: `Role color: [${activeRole?.color || "cyan"}]` },
-    { id: "edit_prompt", label: `Edit prompt for ${activeRole?.name || "role"}` },
+    {
+      id: "edit_prompt",
+      label: `Edit prompt for ${activeRole?.name || "role"}`,
+      explanation: `Shortcut: /prompt ${activeRole?.slug} or /${activeRole?.slug} prompt`,
+    },
     { id: "keep_loaded", label: `Keep model loaded: [${activeRole?.keepLoaded ? "on" : "off"}] (Press Enter to toggle)` },
     ...(activeRole?.isCustom ? [{ id: "delete_custom" as const, label: `Delete custom role ${activeRole.name}` }] : []),
     { id: "back", label: "Back to roles (Esc)" },
@@ -387,8 +459,19 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
 
   // Keyboard navigation
   useInput((input, key) => {
+    // Terminal mouse events (touchpad/mouse wheel, clicks) - strictly ignored for action/role navigation
+    if (
+      input.startsWith("\x1b[<") ||
+      input.startsWith("[<") ||
+      input.includes("<64;") ||
+      input.includes("<65;") ||
+      input === "[4" ||
+      /^\[<?\d*;?\d*;?\d*[Mm]?$/.test(input)
+    ) {
+      return;
+    }
     // -------------------------------------------------------------------------
-    // 0. 5-STEP CUSTOM ROLE WIZARD (Claude Doc 21 - Steps 1-5 with Left/Right navigation)
+    // 0. 4-STEP CUSTOM ROLE WIZARD (Steps 1-4 with Left/Right navigation)
     // -------------------------------------------------------------------------
     if (view === "wizard") {
       // Escape at any step exits wizard cleanly back to roster
@@ -398,41 +481,132 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
         return;
       }
 
-      // Step 1: Role Name
+      // Step 1: Role Name (Single connected word only, e.g. batman or egg-head)
       if (wizardStep === 1) {
-        if (key.return || key.rightArrow) {
-          const trimmed = wizardData.name.trim();
+        // Enter: advance to Step 2 (Right arrow does NOT switch pages)
+        if (key.return) {
+          const trimmed = wizardDataRef.current.name.trim();
           if (!trimmed) {
-            setFeedbackMsg("Please type a name for the role.");
+            setFeedbackMsg("Please type a role name (e.g. 'batman' or 'egg-head').");
             return;
           }
-          if (!wizardData.basePrompt) {
+          if (/\s/.test(trimmed)) {
+            setFeedbackMsg("Role name must be a single connected word without spaces.");
+            return;
+          }
+          if (!wizardDataRef.current.basePrompt) {
+            const defaultPrompt = `You are a ${trimmed}. You ${getDefaultDutyForFunction(wizardDataRef.current.roleFunction)}`;
+            wizardDataRef.current.basePrompt = defaultPrompt;
+            wizardPromptCursorRef.current = defaultPrompt.length;
             setWizardData((prev) => ({
               ...prev,
-              basePrompt: `You are a ${trimmed}. You ${getDefaultDutyForFunction(prev.roleFunction)}`,
+              basePrompt: defaultPrompt,
             }));
+            setWizardPromptCursor(defaultPrompt.length);
           }
           setFeedbackMsg(null);
           setWizardStep(2);
           return;
         }
-        if (key.backspace || key.delete) {
-          setWizardData((prev) => ({ ...prev, name: prev.name.slice(0, -1) }));
+
+        // Left/Right Arrow: move cursor through the role name
+        if (key.leftArrow) {
+          const newCur = Math.max(0, wizardNameCursorRef.current - 1);
+          wizardNameCursorRef.current = newCur;
+          setWizardNameCursor(newCur);
           return;
         }
-        if (input && !key.ctrl && !key.meta) {
-          setWizardData((prev) => ({ ...prev, name: prev.name + input }));
+        if (key.rightArrow) {
+          const curName = wizardDataRef.current.name || "";
+          const newCur = Math.min(curName.length, wizardNameCursorRef.current + 1);
+          wizardNameCursorRef.current = newCur;
+          setWizardNameCursor(newCur);
+          return;
+        }
+
+        // Home / End keys for name field
+        if (input === "\x1b[H" || input === "\x1b[1~") {
+          wizardNameCursorRef.current = 0;
+          setWizardNameCursor(0);
+          return;
+        }
+        if (input === "\x1b[F" || input === "\x1b[4~") {
+          const len = (wizardDataRef.current.name || "").length;
+          wizardNameCursorRef.current = len;
+          setWizardNameCursor(len);
+          return;
+        }
+
+        // Backspace / Delete: ALWAYS deletes character before cursor (standard backspace)
+        const isBackspaceOrDelete = Boolean(
+          key.backspace ||
+          key.delete ||
+          input === "\x08" ||
+          input === "\x7f" ||
+          input === "\b" ||
+          input === "\x1b[3~" ||
+          input === "\u001b[3~" ||
+          input.includes("\x08") ||
+          input.includes("\x7f") ||
+          input.includes("\x1b[3~")
+        );
+        if (isBackspaceOrDelete) {
+          const cur = wizardNameCursorRef.current;
+          const currentName = wizardDataRef.current.name || "";
+          const bsMatches = input.match(/[\x08\x7f\b]/g);
+          const delMatches = input.match(/\x1b\[3~/g);
+          const repeatCount = (bsMatches ? bsMatches.length : 0) + (delMatches ? delMatches.length : 0) || 1;
+          const deleteCount = Math.min(cur, repeatCount);
+          if (deleteCount > 0) {
+            const newName = currentName.slice(0, cur - deleteCount) + currentName.slice(cur);
+            const newCur = cur - deleteCount;
+            wizardDataRef.current.name = newName;
+            wizardNameCursorRef.current = newCur;
+            setWizardData((prev) => ({ ...prev, name: newName }));
+            setWizardNameCursor(newCur);
+          }
+          return;
+        }
+
+        // Spacebar is blocked: custom role names must be single connected words
+        if (input === " " || input.includes(" ")) {
+          setFeedbackMsg("Role names must be a single connected word (e.g. 'batman' or 'egg-head').");
+          return;
+        }
+
+        // Connected word characters: letters, digits, hyphens, and underscores only
+        if (
+          input &&
+          !key.ctrl &&
+          !key.meta &&
+          input !== "\r" &&
+          input !== "\n" &&
+          !input.startsWith("\x1b") &&
+          !input.startsWith("[<") &&
+          !/^\[<?\d*;?\d*;?\d*[Mm]?$/.test(input) &&
+          input !== "[4"
+        ) {
+          const clean = input.replace(/[^a-zA-Z0-9_\-]/g, "");
+          if (clean) {
+            const cur = wizardNameCursorRef.current;
+            const currentName = wizardDataRef.current.name || "";
+            const newName = currentName.slice(0, cur) + clean + currentName.slice(cur);
+            const newCur = cur + clean.length;
+            wizardDataRef.current.name = newName;
+            wizardNameCursorRef.current = newCur;
+            setWizardData((prev) => ({ ...prev, name: newName }));
+            setWizardNameCursor(newCur);
+            setFeedbackMsg(null);
+          } else {
+            setFeedbackMsg("Only letters, numbers, hyphens, and underscores are allowed (e.g. 'egg-head').");
+          }
           return;
         }
         return;
       }
 
-      // Step 2: Role Function (Left arrow -> Name, Right arrow/Enter -> Agent)
+      // Step 2: Role Function (Up/Down + Enter to select, arrows do NOT switch pages)
       if (wizardStep === 2) {
-        if (key.leftArrow) {
-          setWizardStep(1);
-          return;
-        }
         if (key.upArrow) {
           setWizardFuncIndex((prev) => (prev > 0 ? prev - 1 : WIZARD_FUNCTIONS.length - 1));
           return;
@@ -441,7 +615,7 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
           setWizardFuncIndex((prev) => (prev < WIZARD_FUNCTIONS.length - 1 ? prev + 1 : 0));
           return;
         }
-        if (key.return || key.rightArrow) {
+        if (key.return) {
           const pickedFunc = WIZARD_FUNCTIONS[wizardFuncIndex]?.func || "Builders";
           setWizardData((prev) => ({
             ...prev,
@@ -454,10 +628,10 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
         return;
       }
 
-      // Step 3: Assign Agent (With Detected Models sub-dropdown just like Switch Agent)
+      // Step 3: Assign Agent (Up/Down + Enter to select, arrows do NOT switch pages)
       if (wizardStep === 3) {
         if (browsingWizardDetectedModels) {
-          if (key.escape || key.leftArrow) {
+          if (key.escape) {
             setBrowsingWizardDetectedModels(false);
             return;
           }
@@ -469,7 +643,7 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
             setWizardDetectedModelIndex((prev) => (prev < hook.catalog.length - 1 ? prev + 1 : 0));
             return;
           }
-          if (key.return || key.rightArrow) {
+          if (key.return) {
             const picked = hook.catalog[wizardDetectedModelIndex];
             if (picked) {
               setWizardData((prev) => ({
@@ -485,10 +659,6 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
           return;
         }
 
-        if (key.leftArrow) {
-          setWizardStep(2);
-          return;
-        }
         if (key.upArrow) {
           setWizardAgentIndex((prev) => (prev > 0 ? prev - 1 : wizardAgentActions.length - 1));
           return;
@@ -497,7 +667,7 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
           setWizardAgentIndex((prev) => (prev < wizardAgentActions.length - 1 ? prev + 1 : 0));
           return;
         }
-        if (key.return || key.rightArrow) {
+        if (key.return) {
           const action = wizardAgentActions[wizardAgentIndex] || wizardAgentActions[0]!;
           if (action.id === "detected_models") {
             if (hook.catalog.length === 0) {
@@ -555,77 +725,171 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
         return;
       }
 
-      // Step 4: Suggested Base Prompt (Left arrow -> Agent, Right arrow/Enter -> Custom Instructions)
+      // Step 4: Prompt (300 words max) — final step of Custom Role Wizard
+      // Fully matches PromptEditor behavior: multi-line navigation, '>' active line, Shift+Enter, hold delete
       if (wizardStep === 4) {
-        if (key.leftArrow) {
-          setWizardStep(3);
+        if (isShiftEnter(key, input)) {
+          const cur = wizardPromptCursorRef.current;
+          const text = wizardDataRef.current.basePrompt || "";
+          const newText = text.slice(0, cur) + "\n" + text.slice(cur);
+          const newCursor = cur + 1;
+          wizardDataRef.current.basePrompt = newText;
+          wizardPromptCursorRef.current = newCursor;
+          setWizardData((prev) => ({ ...prev, basePrompt: newText }));
+          setWizardPromptCursor(newCursor);
           return;
         }
+
+        // Left/Right Arrow: move cursor left/right (never switches pages)
+        if (key.leftArrow) {
+          const newCursor = Math.max(0, wizardPromptCursorRef.current - 1);
+          wizardPromptCursorRef.current = newCursor;
+          setWizardPromptCursor(newCursor);
+          return;
+        }
+        if (key.rightArrow) {
+          const text = wizardDataRef.current.basePrompt || "";
+          const newCursor = Math.min(text.length, wizardPromptCursorRef.current + 1);
+          wizardPromptCursorRef.current = newCursor;
+          setWizardPromptCursor(newCursor);
+          return;
+        }
+
+        // Up/Down Arrow: line navigation through prompt canvas
+        if (key.upArrow) {
+          if (wizardCursorLine > 0) {
+            let prevOffset = 0;
+            for (let i = 0; i < wizardCursorLine - 1; i++) {
+              prevOffset += wizardLines[i]!.length + 1;
+            }
+            const prevLen = wizardLines[wizardCursorLine - 1]!.length;
+            const targetCol = Math.min(wizardCursorCol, prevLen);
+            const newCursor = prevOffset + targetCol;
+            wizardPromptCursorRef.current = newCursor;
+            setWizardPromptCursor(newCursor);
+          } else {
+            wizardPromptCursorRef.current = 0;
+            setWizardPromptCursor(0);
+          }
+          return;
+        }
+
+        if (key.downArrow) {
+          if (wizardCursorLine < wizardLines.length - 1) {
+            let nextOffset = 0;
+            for (let i = 0; i <= wizardCursorLine; i++) {
+              nextOffset += wizardLines[i]!.length + 1;
+            }
+            const nextLen = wizardLines[wizardCursorLine + 1]!.length;
+            const targetCol = Math.min(wizardCursorCol, nextLen);
+            const newCursor = nextOffset + targetCol;
+            wizardPromptCursorRef.current = newCursor;
+            setWizardPromptCursor(newCursor);
+          } else {
+            const text = wizardDataRef.current.basePrompt || "";
+            wizardPromptCursorRef.current = text.length;
+            setWizardPromptCursor(text.length);
+          }
+          return;
+        }
+
+        // Reset prompt (Ctrl+R)
         if (key.ctrl && (input === "r" || input === "R")) {
+          const defaultPrompt = `You are a ${wizardDataRef.current.name || "Custom Role"}. You ${getDefaultDutyForFunction(wizardDataRef.current.roleFunction)}`;
+          wizardDataRef.current.basePrompt = defaultPrompt;
+          wizardPromptCursorRef.current = defaultPrompt.length;
           setWizardData((prev) => ({
             ...prev,
-            basePrompt: `You are a ${prev.name || "Custom Role"}. You ${getDefaultDutyForFunction(prev.roleFunction)}`,
+            basePrompt: defaultPrompt,
           }));
+          setWizardPromptCursor(defaultPrompt.length);
           setFeedbackMsg("Prompt reset to suggested default.");
           return;
         }
+
+        // Clear prompt (Ctrl+K)
         if (key.ctrl && (input === "k" || input === "K")) {
+          wizardDataRef.current.basePrompt = "";
+          wizardPromptCursorRef.current = 0;
           setWizardData((prev) => ({ ...prev, basePrompt: "" }));
+          setWizardPromptCursor(0);
           setFeedbackMsg("Prompt cleared.");
           return;
         }
-        if (key.return || key.rightArrow) {
-          setWizardStep(5);
-          return;
-        }
-        if (key.backspace || key.delete) {
-          setWizardData((prev) => ({ ...prev, basePrompt: prev.basePrompt.slice(0, -1) }));
-          return;
-        }
-        if (input && !key.ctrl && !key.meta) {
-          setWizardData((prev) => ({ ...prev, basePrompt: prev.basePrompt + input }));
-          return;
-        }
-        return;
-      }
 
-      // Step 5: Custom Instructions (300 words max, optional)
-      if (wizardStep === 5) {
-        if (key.leftArrow) {
-          setWizardStep(4);
-          return;
-        }
-        if (key.ctrl && (input === "k" || input === "K")) {
-          setWizardData((prev) => ({ ...prev, customInstructions: "" }));
-          setFeedbackMsg("Instructions cleared.");
-          return;
-        }
-        if (key.return) {
-          // Complete wizard and add custom role
+        // Enter: creates and completes custom role (Ctrl+Enter strictly ignored)
+        if (key.return && !key.ctrl && input !== "\n") {
+          const finalPrompt = truncateTo300Words(wizardDataRef.current.basePrompt || "");
           hook.addCustomRole({
-            name: wizardData.name.trim(),
-            roleFunction: wizardData.roleFunction,
-            description: wizardData.functionDescription || `${wizardData.name.trim()} custom role`,
-            model: wizardData.model || "No Agent",
-            assignmentType: wizardData.assignmentType,
-            customPath: wizardData.customPath,
-            prompt: wizardData.basePrompt,
-            customInstructions: wizardData.customInstructions,
+            name: wizardDataRef.current.name.trim(),
+            roleFunction: wizardDataRef.current.roleFunction,
+            description: wizardDataRef.current.functionDescription || `${wizardDataRef.current.name.trim()} custom role`,
+            model: wizardDataRef.current.model || "No Agent",
+            assignmentType: wizardDataRef.current.assignmentType,
+            customPath: wizardDataRef.current.customPath,
+            prompt: finalPrompt,
           });
-          setFeedbackMsg(`Successfully created custom role "${wizardData.name.trim()}".`);
+          setFeedbackMsg(`Successfully created custom role "${wizardDataRef.current.name.trim()}".`);
           setView("roster");
           return;
         }
-        if (key.backspace || key.delete) {
-          setWizardData((prev) => ({ ...prev, customInstructions: prev.customInstructions.slice(0, -1) }));
+
+        // Backspace / Delete: ALWAYS deletes character before cursor (standard backspace)
+        const isBackspaceOrDelete = Boolean(
+          key.backspace ||
+          key.delete ||
+          input === "\x08" ||
+          input === "\x7f" ||
+          input === "\b" ||
+          input === "\x1b[3~" ||
+          input === "\u001b[3~" ||
+          input.includes("\x08") ||
+          input.includes("\x7f") ||
+          input.includes("\x1b[3~")
+        );
+        if (isBackspaceOrDelete) {
+          const cur = wizardPromptCursorRef.current;
+          const text = wizardDataRef.current.basePrompt || "";
+          const bsMatches = input.match(/[\x08\x7f\b]/g);
+          const delMatches = input.match(/\x1b\[3~/g);
+          const repeatCount = (bsMatches ? bsMatches.length : 0) + (delMatches ? delMatches.length : 0) || 1;
+          const deleteCount = Math.min(cur, repeatCount);
+          if (deleteCount > 0) {
+            const newText = text.slice(0, cur - deleteCount) + text.slice(cur);
+            const newCursor = cur - deleteCount;
+            wizardDataRef.current.basePrompt = newText;
+            wizardPromptCursorRef.current = newCursor;
+            setWizardData((prev) => ({ ...prev, basePrompt: newText }));
+            setWizardPromptCursor(newCursor);
+          }
           return;
         }
-        if (input && !key.ctrl && !key.meta) {
-          const currentWords = countWords(wizardData.customInstructions + input);
+
+        // Printable characters
+        if (
+          input &&
+          !key.ctrl &&
+          !key.meta &&
+          input !== "\r" &&
+          input !== "\n" &&
+          !input.startsWith("\x1b") &&
+          !input.startsWith("[<") &&
+          !/^\[<?\d*;?\d*;?\d*[Mm]?$/.test(input) &&
+          input !== "[4"
+        ) {
+          const cur = wizardPromptCursorRef.current;
+          const text = wizardDataRef.current.basePrompt || "";
+          const newText = text.slice(0, cur) + input + text.slice(cur);
+          const currentWords = countWords(newText);
           if (currentWords <= 300) {
-            setWizardData((prev) => ({ ...prev, customInstructions: prev.customInstructions + input }));
+            const newCursor = cur + input.length;
+            wizardDataRef.current.basePrompt = newText;
+            wizardPromptCursorRef.current = newCursor;
+            setWizardData((prev) => ({ ...prev, basePrompt: newText }));
+            setWizardPromptCursor(newCursor);
+            setFeedbackMsg(null);
           } else {
-            setFeedbackMsg("Custom instructions exceed 300 words limit.");
+            setFeedbackMsg("Prompt exceeds 300 words limit.");
           }
           return;
         }
@@ -634,87 +898,9 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
     }
 
     // -------------------------------------------------------------------------
-    // 1. EDIT PROMPT VIEW (Requirement 4 & 5 - smooth scrolling & Ctrl+K)
+    // 1. EDIT PROMPT VIEW (handled by PromptEditor)
     // -------------------------------------------------------------------------
-    if (view === "edit_prompt" && activeRole) {
-      if (key.escape) {
-        setView("drilldown");
-        return;
-      }
-      // Smooth Up/Down arrow scrolling and active line cursor tracking (Item 5)
-      if (key.upArrow) {
-        setPromptLineCursor((prev) => {
-          const next = Math.max(0, prev - 1);
-          setPromptScrollOffset((curOffset) => (next < curOffset ? next : curOffset));
-          return next;
-        });
-        return;
-      }
-      if (key.downArrow) {
-        setPromptLineCursor((prev) => {
-          const next = prev + 1;
-          const maxVisibleLines = Math.max(5, height - 12);
-          setPromptScrollOffset((curOffset) => (next >= curOffset + maxVisibleLines ? next - maxVisibleLines + 1 : curOffset));
-          return next;
-        });
-        return;
-      }
-      if (key.pageUp) {
-        setPromptScrollOffset((prev) => Math.max(0, prev - 4));
-        return;
-      }
-      if (key.pageDown) {
-        setPromptScrollOffset((prev) => prev + 4);
-        return;
-      }
-      // Ctrl+K clears prompt buffer (removes Ctrl+C so terminal is never terminated)
-      if (key.ctrl && (input === "k" || input === "K")) {
-        setPromptBuffer("");
-        setPromptScrollOffset(0);
-        setPromptLineCursor(0);
-        setFeedbackMsg("Prompt cleared.");
-        return;
-      }
-      // Ctrl+R resets to default role prompt (Requirement 5)
-      if (key.ctrl && (input === "r" || input === "R")) {
-        const def = stripLayer1Rules(activeRole.defaultPrompt);
-        setPromptBuffer(def);
-        setPromptScrollOffset(0);
-        setPromptLineCursor(Math.max(0, def.split("\n").length - 1));
-        setFeedbackMsg("Prompt reset to default prompt.");
-        return;
-      }
-      // Enter saves prompt
-      if (key.return) {
-        const cleaned = stripLayer1Rules(promptBuffer);
-        const words = countWords(cleaned);
-        if (words > 300) {
-          setFeedbackMsg("Failed: Prompt exceeds 300 words limit.");
-          return;
-        }
-        hook.setCustomInstructions(activeRole.slug, cleaned);
-        setFeedbackMsg(`Prompt saved for ${activeRole.name} (${words}/300 words).`);
-        setView("drilldown");
-        return;
-      }
-      if (key.backspace || key.delete) {
-        setPromptBuffer((prev) => {
-          const next = prev.slice(0, -1);
-          const lines = next.split("\n");
-          setPromptLineCursor(Math.max(0, lines.length - 1));
-          return next;
-        });
-        return;
-      }
-      if (input && !key.ctrl && !key.meta) {
-        setPromptBuffer((prev) => {
-          const next = prev + input;
-          const lines = next.split("\n");
-          setPromptLineCursor(Math.max(0, lines.length - 1));
-          return next;
-        });
-        return;
-      }
+    if (view === "edit_prompt") {
       return;
     }
 
@@ -989,10 +1175,6 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
           setPaletteIndex(curIdx >= 0 ? curIdx : 0);
           setView("color_palette");
         } else if (action.id === "edit_prompt") {
-          const initialPrompt = activeRole.customInstructions || stripLayer1Rules(activeRole.currentPrompt) || "";
-          setPromptBuffer(initialPrompt);
-          setPromptScrollOffset(0);
-          setPromptLineCursor(Math.max(0, initialPrompt.split("\n").length - 1));
           setView("edit_prompt");
         } else if (action.id === "keep_loaded") {
           hook.setKeepLoaded(activeRole.slug, !activeRole.keepLoaded);
@@ -1048,6 +1230,8 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
             setView("drilldown");
           } else if (item.type === "add_custom") {
             setWizardStep(1);
+            setWizardNameCursor(0);
+            wizardNameCursorRef.current = 0;
             setWizardFuncIndex(1); // default Builders
             setWizardAgentIndex(0); // default Detected Models
             setBrowsingWizardDetectedModels(false);
@@ -1059,7 +1243,7 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
               model: "No Agent",
               assignmentType: "local",
               basePrompt: "",
-              customInstructions: "",
+              prompt: "",
             });
             setFeedbackMsg(null);
             setView("wizard");
@@ -1071,122 +1255,25 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
   });
 
   // ---------------------------------------------------------------------------
-  // RENDER: EDIT PROMPT SCREEN (Requirement 4 & 5)
+  // RENDER: EDIT PROMPT SCREEN (PromptEditor)
   // ---------------------------------------------------------------------------
   if (view === "edit_prompt" && activeRole) {
-    const words = countWords(promptBuffer);
-    const isOverLimit = words > 300;
-
-    // Wrap promptBuffer lines for terminal display and scrolling (Requirement 4)
-    const maxLineLen = Math.max(40, width - 10);
-    const rawLines = (promptBuffer || "(empty prompt - type below)").split("\n");
-    const wrappedLines: string[] = [];
-    rawLines.forEach((l) => {
-      if (l.length <= maxLineLen) {
-        wrappedLines.push(l);
-      } else {
-        for (let i = 0; i < l.length; i += maxLineLen) {
-          wrappedLines.push(l.slice(i, i + maxLineLen));
-        }
-      }
-    });
-
-    const maxVisibleLines = Math.max(4, height - 9);
-    const clampedOffset = Math.max(0, Math.min(promptScrollOffset, Math.max(0, wrappedLines.length - maxVisibleLines)));
-    const visibleLines = wrappedLines.slice(clampedOffset, clampedOffset + maxVisibleLines);
-
-    // Visual scrollbar track and thumb calculation (like Chat area)
-    const totalLines = wrappedLines.length;
-    const scrollbarHeight = maxVisibleLines;
-    const scrollbarRows = totalLines <= maxVisibleLines ? [] : (() => {
-      const thumbHeight = Math.max(
-        1,
-        Math.min(scrollbarHeight - 1, Math.round((scrollbarHeight / totalLines) * scrollbarHeight))
-      );
-      const maxScrollRange = Math.max(1, totalLines - maxVisibleLines);
-      const scrollRatio = clampedOffset / maxScrollRange;
-      const thumbTop = Math.min(
-        scrollbarHeight - thumbHeight,
-        Math.round(scrollRatio * (scrollbarHeight - thumbHeight))
-      );
-
-      return Array.from({ length: scrollbarHeight }, (_, i) => {
-        const isThumb = i >= thumbTop && i < thumbTop + thumbHeight;
-        let char = " ";
-        if (isThumb) {
-          if (thumbHeight === 1) {
-            char = "┃";
-          } else if (i === thumbTop) {
-            char = "╻";
-          } else if (i === thumbTop + thumbHeight - 1) {
-            char = "╹";
-          } else {
-            char = "┃";
-          }
-        }
-        return { index: i, isThumb, char };
-      });
-    })();
-
     return (
-      <Box flexDirection="column" width={width} paddingX={1} paddingY={0}>
-        <Text bold color="cyan">
-          Editing Prompt for {activeRole.name}
-        </Text>
-        <Text color="gray">
-          Type instructions or guidelines for this role. Words:{" "}
-          <Text color={isOverLimit ? "red" : "green"}>{words} / 300 words</Text>
-        </Text>
-
-        <Box
-          marginY={0}
-          paddingX={1}
-          borderStyle="single"
-          borderColor="gray"
-          height={maxVisibleLines + 2}
-          flexDirection="row"
-          justifyContent="space-between"
-          flexShrink={0}
-        >
-          <Box flexDirection="column" flexGrow={1}>
-            {visibleLines.map((line, idx) => {
-              const lineGlobalIdx = clampedOffset + idx;
-              const isCurrent = lineGlobalIdx === promptLineCursor;
-              return (
-                <Box key={idx} flexDirection="row" flexShrink={0}>
-                  <Text color={isCurrent ? "cyan" : "gray"} bold={isCurrent}>
-                    {isCurrent ? "> " : "  "}
-                  </Text>
-                  <Text>{line}</Text>
-                  {isCurrent && <Text color="cyan">█</Text>}
-                </Box>
-              );
-            })}
-          </Box>
-          {scrollbarRows.length > 0 && (
-            <Box flexDirection="column" width={1} marginLeft={1} flexShrink={0}>
-              {scrollbarRows.map((row) => (
-                <Box key={row.index} height={1}>
-                  <Text color="cyan" bold={row.isThumb}>
-                    {row.char}
-                  </Text>
-                </Box>
-              ))}
-            </Box>
-          )}
-        </Box>
-
-        {/* Dedicated 1-line feedback slot so shortcuts are never pushed off screen */}
-        <Box height={1} marginY={0} flexShrink={0}>
-          {feedbackMsg ? <Text color="green">{feedbackMsg}</Text> : null}
-        </Box>
-
-        <Box marginTop={0} borderStyle="single" borderColor="gray" paddingX={1} justifyContent="space-between" flexShrink={0}>
-          <Text color="gray">
-            Enter: save prompt   Ctrl+K: clear prompt   Ctrl+R: reset default   Up/Down: scroll   Esc: cancel
-          </Text>
-        </Box>
-      </Box>
+      <PromptEditor
+        title={activeRole.name}
+        roleSlug={activeRole.slug}
+        initialValue={activeRole.prompt || ""}
+        roleColor={activeRole.color}
+        terminalSize={{ columns: width, rows: height }}
+        onSave={(saved) => {
+          hook.setRolePrompt(activeRole.slug, saved);
+          setFeedbackMsg(`Prompt saved for ${activeRole.name}.`);
+          setView("drilldown");
+        }}
+        onClose={() => {
+          setView("drilldown");
+        }}
+      />
     );
   }
 
@@ -1198,8 +1285,7 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
       { step: 1, title: "1. Name" },
       { step: 2, title: "2. Function" },
       { step: 3, title: "3. Agent" },
-      { step: 4, title: "4. Base Prompt" },
-      { step: 5, title: "5. Instructions" },
+      { step: 4, title: "4. Prompt" },
     ];
 
     return (
@@ -1228,29 +1314,34 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
           </Box>
         </Box>
 
-        {/* Step 1: Role Name (Inline cursor follows text, placeholder at start) */}
+        {/* Step 1: Role Name (Single connected word only, e.g. batman or egg-head) */}
         {wizardStep === 1 && (
           <Box flexDirection="column" flexGrow={1}>
             <Text bold color="white">
               Step 1: Role Name
             </Text>
             <Text color="gray">
-              Type a title for your custom role (e.g. Full Stack Engineer, Database Architect, Security Auditor).
+              Type a single-word role name without spaces (e.g. batman or egg-head).
             </Text>
 
-            <Box marginY={1} padding={1} borderStyle="single" borderColor="gray" flexDirection="row">
-              <Text color="green">&gt; </Text>
-              {wizardData.name ? (
-                <>
-                  <Text bold color="white">{wizardData.name}</Text>
-                  <Text color="cyan">█</Text>
-                </>
-              ) : (
-                <>
-                  <Text color="cyan">█</Text>
-                  <Text color="gray"> (e.g. Full Stack Engineer)</Text>
-                </>
-              )}
+            <Box flexDirection="column" marginY={1}>
+              <Text color="gray">{"─".repeat(Math.max(10, width - 4))}</Text>
+              <Box flexDirection="row" paddingY={0}>
+                <Text color="cyan" bold>&gt; </Text>
+                {wizardData.name ? (
+                  <Box flexDirection="row">
+                    <Text bold color="white">{wizardData.name.slice(0, wizardNameCursor)}</Text>
+                    <Text color="cyan" inverse>{wizardData.name[wizardNameCursor] || " "}</Text>
+                    <Text bold color="white">{wizardData.name.slice(wizardNameCursor + 1)}</Text>
+                  </Box>
+                ) : (
+                  <Box flexDirection="row">
+                    <Text color="cyan" inverse>{" "}</Text>
+                    <Text color="gray"> (e.g. batman or egg-head)</Text>
+                  </Box>
+                )}
+              </Box>
+              <Text color="gray">{"─".repeat(Math.max(10, width - 4))}</Text>
             </Box>
           </Box>
         )}
@@ -1356,57 +1447,71 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
           </Box>
         )}
 
-        {/* Step 4: Suggested Base Prompt (Inline cursor follows text) */}
+        {/* Step 4: Prompt (Unified with PromptEditor layout: exact cursor, '>' line indicator, scrollbar) */}
         {wizardStep === 4 && (
           <Box flexDirection="column" flexGrow={1}>
             <Text bold color="white">
-              Step 4: Suggested Base Prompt for "{wizardData.name}" ({wizardData.roleFunction})
+              Step 4: Prompt for "{wizardData.name}" ({wizardData.roleFunction})
             </Text>
             <Text color="gray">
-              Default role duties generated by Vecta. You can customize this or accept as is.
-            </Text>
-
-            <Box marginY={1} padding={1} borderStyle="single" borderColor="gray" flexDirection="row" flexWrap="wrap" minHeight={5}>
-              {wizardData.basePrompt ? (
-                <>
-                  <Text>{wizardData.basePrompt}</Text>
-                  <Text color="cyan">█</Text>
-                </>
-              ) : (
-                <>
-                  <Text color="cyan">█</Text>
-                  <Text color="gray"> (type suggested base prompt instructions)</Text>
-                </>
-              )}
-            </Box>
-          </Box>
-        )}
-
-        {/* Step 5: Custom Instructions (Inline cursor follows text) */}
-        {wizardStep === 5 && (
-          <Box flexDirection="column" flexGrow={1}>
-            <Text bold color="white">
-              Step 5: Custom Instructions for "{wizardData.name}" (Optional)
-            </Text>
-            <Text color="gray">
-              Add guidelines or style rules. Words:{" "}
-              <Text color={countWords(wizardData.customInstructions) > 300 ? "red" : "green"}>
-                {countWords(wizardData.customInstructions)} / 300 words
+              Custom instructions or default duties. Words:{" "}
+              <Text color={countWords(wizardData.basePrompt) > 300 ? "red" : "green"}>
+                {countWords(wizardData.basePrompt)} / 300 words
               </Text>
             </Text>
 
-            <Box marginY={1} padding={1} borderStyle="single" borderColor="gray" flexDirection="row" flexWrap="wrap" minHeight={5}>
-              {wizardData.customInstructions ? (
-                <>
-                  <Text>{wizardData.customInstructions}</Text>
-                  <Text color="cyan">█</Text>
-                </>
-              ) : (
-                <>
-                  <Text color="cyan">█</Text>
-                  <Text color="gray"> (Press Enter to finish, or type custom instructions)</Text>
-                </>
-              )}
+            <Box flexDirection="column" marginY={1}>
+              <Text color="gray">{"─".repeat(Math.max(10, width - 4))}</Text>
+              <Box flexDirection="row" justifyContent="space-between">
+                <Box flexDirection="column" flexGrow={1}>
+                  {!wizardData.basePrompt ? (
+                    <Box flexDirection="row">
+                      <Text color="cyan" bold>{"> "}</Text>
+                      <Text color="cyan" inverse>{" "}</Text>
+                      <Text color="gray"> (type prompt instructions... Shift+Enter for new line)</Text>
+                    </Box>
+                  ) : (
+                    visibleWizardLines.map((lineText, idx) => {
+                      const actualLineIdx = wizardScrollOffset + idx;
+                      const isLineActive = actualLineIdx === wizardCursorLine;
+
+                      if (!isLineActive) {
+                        return (
+                          <Box key={idx} height={1} flexDirection="row">
+                            <Text color="gray">  </Text>
+                            <Text>{lineText || " "}</Text>
+                          </Box>
+                        );
+                      }
+
+                      const before = lineText.slice(0, wizardCursorCol);
+                      const charAt = lineText[wizardCursorCol] || " ";
+                      const after = lineText.slice(wizardCursorCol + 1);
+
+                      return (
+                        <Box key={idx} height={1} flexDirection="row">
+                          <Text color="cyan" bold>{"> "}</Text>
+                          <Text>{before}</Text>
+                          <Text color="cyan" inverse>{charAt}</Text>
+                          <Text>{after}</Text>
+                        </Box>
+                      );
+                    })
+                  )}
+                </Box>
+
+                {/* Right: Smooth web-like scrollbar rail for long prompts */}
+                {wizardScrollbarRows.length > 0 && (
+                  <Box flexDirection="column" width={1} height={Math.max(1, visibleWizardLines.length)} paddingLeft={1} flexShrink={0}>
+                    {wizardScrollbarRows.map((row) => (
+                      <Box key={row.index} height={1}>
+                        {row.isThumb ? <Text color="cyan" bold>█</Text> : <Text> </Text>}
+                      </Box>
+                    ))}
+                  </Box>
+                )}
+              </Box>
+              <Text color="gray">{"─".repeat(Math.max(10, width - 4))}</Text>
             </Box>
           </Box>
         )}
@@ -1416,15 +1521,15 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
         </Box>
 
         {/* Footer with contextual navigation shortcuts */}
-        <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1}>
+        <Box marginTop={1} flexDirection="column" flexShrink={0}>
+          <Text color="gray">{"─".repeat(Math.max(10, width - 4))}</Text>
           <Text color="gray">
-            {wizardStep === 1 && "Enter / Right: next   Esc: cancel to roster"}
-            {wizardStep === 2 && "Up/Down: select   Left: back to Name   Right / Enter: next to Agent   Esc: cancel"}
+            {wizardStep === 1 && "Enter: next   Left/Right: move cursor   Esc: cancel"}
+            {wizardStep === 2 && "Up/Down: select function   Enter: next   Esc: cancel"}
             {wizardStep === 3 && (browsingWizardDetectedModels
-              ? "Up/Down: select model   Enter/Right: choose   Esc/Left: back to actions"
-              : "Up/Down: select action   Left: back to Function   Right / Enter: choose   Esc: cancel")}
-            {wizardStep === 4 && "Enter / Right: next   Left: back to Agent   Ctrl+R: reset   Ctrl+K: clear   Esc: cancel"}
-            {wizardStep === 5 && "Enter: create role   Left: back to Base Prompt   Ctrl+K: clear   Esc: cancel"}
+              ? "Up/Down: select model   Enter: choose   Esc: back"
+              : "Up/Down: select action   Enter: choose   Esc: cancel")}
+            {wizardStep === 4 && "Enter: create role   Shift+Enter: new line   Ctrl+R: reset   Ctrl+K: clear   Esc: cancel"}
           </Text>
         </Box>
       </Box>
@@ -1440,19 +1545,23 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
         <Text bold color="cyan">
           {inputTitle}
         </Text>
-        <Box marginY={1} padding={1} borderStyle="single" borderColor="gray" flexDirection="row">
-          <Text color="green">&gt; </Text>
-          {textBuffer ? (
-            <>
-              <Text>{textBuffer}</Text>
-              <Text color="cyan">█</Text>
-            </>
-          ) : (
-            <>
-              <Text color="cyan">█</Text>
-              <Text color="gray"> (type here...)</Text>
-            </>
-          )}
+        <Box flexDirection="column" marginY={1}>
+          <Text color="gray">{"─".repeat(Math.max(10, width - 4))}</Text>
+          <Box flexDirection="row" paddingY={0}>
+            <Text color="green">&gt; </Text>
+            {textBuffer ? (
+              <>
+                <Text>{textBuffer}</Text>
+                <Text color="cyan">█</Text>
+              </>
+            ) : (
+              <>
+                <Text color="cyan">█</Text>
+                <Text color="gray"> (type here...)</Text>
+              </>
+            )}
+          </Box>
+          <Text color="gray">{"─".repeat(Math.max(10, width - 4))}</Text>
         </Box>
         <Box height={1} marginY={0} flexShrink={0}>
           {feedbackMsg ? <Text color="green">{feedbackMsg}</Text> : null}
@@ -1498,7 +1607,8 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
         </Box>
 
         {/* Live Chat Tag Preview Banner */}
-        <Box marginY={1} padding={1} borderStyle="single" borderColor="gray" flexDirection="column">
+        <Box marginY={1} flexDirection="column">
+          <Text color="gray">{"─".repeat(Math.max(10, width - 4))}</Text>
           <Text bold color="gray">Live Chat Preview:</Text>
           <Box marginTop={0}>
             <Text bold color={selectedColorObj.color as any}>
@@ -1506,9 +1616,11 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
             </Text>
             <Text> Writing LoginForm.tsx (type contracts verified)</Text>
           </Box>
+          <Text color="gray">{"─".repeat(Math.max(10, width - 4))}</Text>
         </Box>
 
-        <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1}>
+        <Box marginTop={1} flexDirection="column" flexShrink={0}>
+          <Text color="gray">{"─".repeat(Math.max(10, width - 4))}</Text>
           <Text color="gray">Arrows: navigate palette grid   Enter: select color   Esc: cancel</Text>
         </Box>
       </Box>
@@ -1530,7 +1642,8 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
         <Text color="gray">Choose a local brain model, cloud API key, or manual file.</Text>
 
         {/* Dedicated Compact Recommendation Box (Requirement 3 & 7) */}
-        <Box marginTop={height < 24 ? 0 : 1} paddingX={1} borderStyle="single" borderColor="gray" flexDirection="column" flexShrink={0}>
+        <Box marginTop={height < 24 ? 0 : 1} flexDirection="column" flexShrink={0}>
+          <Text color="gray">{"─".repeat(Math.max(10, width - 4))}</Text>
           <Text bold color="white">
             Recommended for {activeRole.name} (Hardware: {hook.hardware ? `${Math.round(hook.hardware.totalRamBytes / (1024 * 1024 * 1024))}GB RAM` : "Auto"}):
           </Text>
@@ -1542,6 +1655,7 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
               </Box>
             </Box>
           ))}
+          <Text color="gray">{"─".repeat(Math.max(10, width - 4))}</Text>
         </Box>
 
         {/* Switch Agent Actions with flexShrink={0} so they never collapse (Item 9) */}
@@ -1610,7 +1724,8 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
           {feedbackMsg ? <Text color="green">{feedbackMsg}</Text> : null}
         </Box>
 
-        <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1} flexShrink={0}>
+        <Box marginTop={1} flexDirection="column" flexShrink={0}>
+          <Text color="gray">{"─".repeat(Math.max(10, width - 4))}</Text>
           <Text color="gray">
             {browsingDetectedModels
               ? "Up/Down: select model   Enter: assign model   Esc: back to actions"
@@ -1626,7 +1741,7 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
   // ---------------------------------------------------------------------------
   if (view === "drilldown" && activeRole) {
     // Abbreviated prompt snippet across three lines + ellipsis (Requirement 5)
-    const rawPrompt = activeRole.customInstructions || stripLayer1Rules(activeRole.currentPrompt) || "No prompt set";
+    const rawPrompt = activeRole.prompt || "No prompt set";
     const promptClean = rawPrompt.replace(/\s+/g, " ").trim();
     const lineLen = Math.max(30, width - 12);
     const line1 = promptClean.slice(0, lineLen);
@@ -1655,7 +1770,7 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
 
         {/* Manager critical warning */}
         {activeRole.slug === "manager" && (
-          <Box marginY={height < 24 ? 0 : 1} paddingX={1} borderStyle="single" borderColor="yellow" flexShrink={0}>
+          <Box marginY={height < 24 ? 0 : 1} flexDirection="column" flexShrink={0}>
             <Text color="yellow">! Warning: Manager is the conductor of Vecta. Changing its model risks instability.</Text>
           </Box>
         )}
@@ -1726,8 +1841,8 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
                         {action.label}
                       </Text>
                     </Box>
-                    {/* Indented autonomy explanation right underneath line when hovered (Requirement 8) */}
-                    {action.id === "autonomy" && isSelected && action.explanation && (
+                    {/* Indented explanation right underneath line when hovered */}
+                    {isSelected && action.explanation && (
                       <Box marginLeft={4} flexShrink={0}>
                         <Text color="magenta">{"-> "} {action.explanation}</Text>
                       </Box>
@@ -1744,7 +1859,8 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
           {feedbackMsg ? <Text color="green">{feedbackMsg}</Text> : null}
         </Box>
 
-        <Box marginTop={height < 24 ? 0 : 1} borderStyle="single" borderColor="gray" paddingX={1} flexShrink={0}>
+        <Box marginTop={height < 24 ? 0 : 1} flexDirection="column" flexShrink={0}>
+          <Text color="gray">{"─".repeat(Math.max(10, width - 4))}</Text>
           <Text color="gray">Up/Down: navigate   Enter: select action   Space: toggle status   Esc: back to roles</Text>
         </Box>
       </Box>
@@ -1813,6 +1929,25 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
     ? allRosterRows.slice(rosterStart, rosterStart + maxVisibleRosterRows)
     : allRosterRows;
 
+  // Smooth web scrollbar for main roster
+  const scrollbarRows: { index: number; isThumb: boolean }[] = [];
+  if (totalRows > maxVisibleRosterRows) {
+    const scrollbarHeight = maxVisibleRosterRows;
+    const thumbHeight = Math.max(
+      1,
+      Math.min(scrollbarHeight - 1, Math.round((maxVisibleRosterRows / totalRows) * scrollbarHeight))
+    );
+    const maxScroll = totalRows - maxVisibleRosterRows;
+    const scrollRatio = maxScroll > 0 ? rosterStart / maxScroll : 0;
+    const maxThumbTop = scrollbarHeight - thumbHeight;
+    const thumbTop = Math.min(maxThumbTop, Math.max(0, Math.round(scrollRatio * maxThumbTop)));
+
+    for (let i = 0; i < scrollbarHeight; i++) {
+      const isThumb = i >= thumbTop && i < thumbTop + thumbHeight;
+      scrollbarRows.push({ index: i, isThumb });
+    }
+  }
+
   return (
     <Box flexDirection="column" width={width} paddingX={1} paddingY={0}>
       {/* Title bar (Clean, borderless per Item 4) */}
@@ -1825,47 +1960,64 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
         )}
       </Box>
 
-      {/* Scrollable roster rows with flexShrink={0} so items never collapse (Item 8) */}
-      <Box flexDirection="column">
-        {visibleRosterRows.map((row) => {
-          if (row.isHeader) {
-            return (
-              <Box key={row.key} height={1} flexShrink={0} marginTop={0}>
-                <Text bold color="white">{row.headerTitle}</Text>
-              </Box>
-            );
-          }
+      {/* Scrollable roster rows with smooth web scrollbar rail on right */}
+      <Box flexDirection="row" justifyContent="space-between">
+        <Box flexDirection="column" flexGrow={1}>
+          {visibleRosterRows.map((row) => {
+            if (row.isHeader) {
+              return (
+                <Box key={row.key} height={1} flexShrink={0} marginTop={0}>
+                  <Text bold color="white">{row.headerTitle}</Text>
+                </Box>
+              );
+            }
 
-          const isSelected = row.navIndex === rosterIndex;
+            const isSelected = row.navIndex === rosterIndex;
 
-          if (row.isAddCustom) {
+            if (row.isAddCustom) {
+              return (
+                <Box key={row.key} marginLeft={2} height={1} flexShrink={0}>
+                  <Text color={isSelected ? "cyan" : "gray"}>{isSelected ? "> " : "  "}</Text>
+                  <Text bold={isSelected} color={isSelected ? "cyan" : "gray"}>
+                    + Add custom role
+                  </Text>
+                </Box>
+              );
+            }
+
+            const r = row.role!;
             return (
-              <Box key={row.key} marginLeft={2} height={1} flexShrink={0}>
+              <Box key={row.key} marginLeft={2} flexDirection="row" height={1} flexShrink={0}>
                 <Text color={isSelected ? "cyan" : "gray"}>{isSelected ? "> " : "  "}</Text>
-                <Text bold={isSelected} color={isSelected ? "cyan" : "gray"}>
-                  + Add custom role
+                <Text color={r.enabled ? "green" : "gray"}>[{r.enabled ? "on" : "off"}] </Text>
+                <Box width={26} flexShrink={0}>
+                  <Text bold={isSelected} color={r.color as any}>
+                    {r.name}
+                  </Text>
+                </Box>
+                <Text color="gray">
+                  {r.model || (r.isOrchestrator ? "Vecta Default" : "No Agent")} {getFitBadge(r)}
                 </Text>
+                {r.roleFunction === "Checkers" && r.autonomy && <Text color="magenta"> [{r.autonomy.toUpperCase()}]</Text>}
               </Box>
             );
-          }
+          })}
+        </Box>
 
-          const r = row.role!;
-          return (
-            <Box key={row.key} marginLeft={2} flexDirection="row" height={1} flexShrink={0}>
-              <Text color={isSelected ? "cyan" : "gray"}>{isSelected ? "> " : "  "}</Text>
-              <Text color={r.enabled ? "green" : "gray"}>[{r.enabled ? "on" : "off"}] </Text>
-              <Box width={26} flexShrink={0}>
-                <Text bold={isSelected} color={r.color as any}>
-                  {r.name}
-                </Text>
+        {/* Right: Smooth web-like scrollbar rail for roster */}
+        {scrollbarRows.length > 0 && (
+          <Box flexDirection="column" width={1} height={maxVisibleRosterRows} paddingLeft={1} flexShrink={0}>
+            {scrollbarRows.map((row: { index: number; isThumb: boolean }) => (
+              <Box key={row.index} height={1}>
+                {row.isThumb ? (
+                  <Text color="cyan" bold>█</Text>
+                ) : (
+                  <Text> </Text>
+                )}
               </Box>
-              <Text color="gray">
-                {r.model || (r.isOrchestrator ? "Vecta Default" : "No Agent")} {getFitBadge(r)}
-              </Text>
-              {r.autonomy && <Text color="magenta"> [{r.autonomy.toUpperCase()}]</Text>}
-            </Box>
-          );
-        })}
+            ))}
+          </Box>
+        )}
       </Box>
 
       {/* Dedicated 1-line feedback slot */}
@@ -1874,7 +2026,8 @@ export const AgentRoles: React.FC<AgentRolesProps> = ({ onClose, rolesHook, term
       </Box>
 
       {/* Footer Status Bar */}
-      <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1} flexShrink={0}>
+      <Box marginTop={1} flexDirection="column" flexShrink={0}>
+        <Text color="gray">{"─".repeat(Math.max(10, width - 4))}</Text>
         <Text color="gray">
           Up/Down: navigate   Space: toggle [on]/[off]   Enter: select role   Esc: exit to chat
         </Text>

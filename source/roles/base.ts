@@ -54,8 +54,8 @@ export interface Layer2Limits {
   directUserCommunication?: boolean;
   // Auto-accept edits without asking for per-file confirmation (Shift+Tab)
   autoAcceptEdits?: boolean;
-  // Maximum word count for custom role instructions (default 300)
-  maxCustomInstructionWords?: number;
+  // Maximum word count for role prompt (default 300)
+  maxPromptWords?: number;
 }
 
 /**
@@ -89,7 +89,7 @@ export const DEFAULT_LAYER_1_LIMITS: Layer1Limits = {
 export const DEFAULT_LAYER_2_LIMITS: Layer2Limits = {
   directUserCommunication: false,
   autoAcceptEdits: false,
-  maxCustomInstructionWords: 300,
+  maxPromptWords: 300,
 };
 
 /**
@@ -138,8 +138,8 @@ export interface TaskBrief {
   allowedPaths: string[];
   // Boundary folders this role cannot escape
   allowedBoundaries: string[];
-  // Optional custom instructions from user (up to 300 words)
-  customInstructions?: string;
+  // Optional prompt from user (up to 300 words)
+  prompt?: string;
 }
 
 /**
@@ -164,10 +164,8 @@ export interface RoleDefinition {
   color: string;
   // The pre-written system prompt defining role identity and duties (never includes raw Layer 1 limits)
   defaultPrompt: string;
-  // The currently active prompt (user-customizable, defaults to defaultPrompt)
-  currentPrompt: string;
-  // Optional user custom instructions (up to 300 words)
-  customInstructions?: string;
+  // Optional user prompt for this role (up to 300 words)
+  prompt?: string;
   // Layer 1 and Layer 2 limits
   limits: RoleLimits;
   // If Orchestrator, base responsibilities written to manager-duties.json
@@ -192,7 +190,7 @@ export interface RoleDefinition {
  * Assembles the full prompt stack for an AI role:
  * 1. Layer 1 System Security Rules (Hardcoded in code, ALWAYS active, never editable)
  * 2. Role Identity & Mission Prompt (clean prompt without baked-in Layer 1 rules)
- * 3. User Custom Instructions (if set, up to 300 words)
+ * 3. User Prompt (if set, up to 300 words)
  * 4. Relevant memory snippets from Manager
  * 5. Specific task description and file boundaries for this run
  */
@@ -203,15 +201,15 @@ export function assembleTaskPrompt(role: RoleDefinition, brief: TaskBrief): stri
   sections.push(LAYER_1_SYSTEM_PROMPT_RULES);
 
   // Base Role Identity & Mission Prompt (cleaned of any redundant Layer 1 text)
-  const rawPrompt = role.currentPrompt || role.defaultPrompt;
-  const cleanRolePrompt = stripLayer1Rules(rawPrompt);
+  const cleanRolePrompt = stripLayer1Rules(role.defaultPrompt);
   if (cleanRolePrompt.trim()) {
     sections.push(cleanRolePrompt.trim());
   }
 
-  // Layer 2: Custom Instructions (if set by user, up to 300 words)
-  if (role.customInstructions && role.customInstructions.trim()) {
-    sections.push(`[USER CUSTOM INSTRUCTIONS]\n${role.customInstructions.trim()}`);
+  // Layer 2: User Prompt (if set for this role or task, up to 300 words)
+  const roleUserPrompt = role.prompt || brief.prompt;
+  if (roleUserPrompt && roleUserPrompt.trim()) {
+    sections.push(`[USER PROMPT - ${role.name.toUpperCase()}]\n${roleUserPrompt.trim()}`);
   }
 
   // Layer 3: Memory Snippets

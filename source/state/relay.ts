@@ -26,6 +26,7 @@ export interface RoleBriefRelay {
   user_request_summary: string;
   previous_role_summary: string;
   memory_snippets: string[];
+  prompt?: string;
   timestamp: string;
 }
 

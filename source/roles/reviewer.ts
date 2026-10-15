@@ -45,8 +45,7 @@ export const reviewerRole: RoleDefinition = {
   color: "magenta",
   autonomy: "off", // Default Off (Sprint Plan §2D: two modes only: "off" | "full")
   defaultPrompt: REVIEWER_DEFAULT_PROMPT,
-  currentPrompt: REVIEWER_DEFAULT_PROMPT,
-  customInstructions: "",
+  prompt: "",
   assignmentType: "local",
   model: "llama3.1:8b",
   limits: {

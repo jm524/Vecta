@@ -42,7 +42,7 @@ export const HelpCommand: React.FC<HelpCommandProps> = ({ onClose, terminalSize 
           <Text color="cyan">/roles (or /agent roles) <Text color="gray">- Open interactive worker roles manager</Text></Text>
           <Text color="cyan">/server stop             <Text color="gray">- Stop running local AI servers (Ollama, LM Studio)</Text></Text>
           <Text color="cyan">/help                    <Text color="gray">- Show this command and keyboard shortcut guide</Text></Text>
-          <Text color="cyan">/exit, /quit             <Text color="gray">- Exit Vecta cleanly</Text></Text>
+          <Text color="cyan">/exit                    <Text color="gray">- Exit Vecta cleanly</Text></Text>
         </Box>
       </Box>
 

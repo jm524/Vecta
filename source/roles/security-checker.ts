@@ -46,8 +46,7 @@ export const securityCheckerRole: RoleDefinition = {
   color: "red",
   autonomy: "off", // Default Off (Sprint Plan §2D: two modes only: "off" | "full")
   defaultPrompt: SECURITY_CHECKER_DEFAULT_PROMPT,
-  currentPrompt: SECURITY_CHECKER_DEFAULT_PROMPT,
-  customInstructions: "",
+  prompt: "",
   assignmentType: "local",
   model: "llama3.1:8b",
   limits: {

@@ -77,8 +77,7 @@ export const managerRole: RoleDefinition = {
   enabled: true,
   color: "cyan",
   defaultPrompt: MANAGER_DEFAULT_PROMPT,
-  currentPrompt: MANAGER_DEFAULT_PROMPT,
-  customInstructions: "",
+  prompt: "",
   limits: {
     layer1: DEFAULT_LAYER_1_LIMITS,
     layer2: DEFAULT_LAYER_2_LIMITS,

@@ -43,8 +43,7 @@ export interface StoredRoleConfig {
   apiKeySet?: boolean;
   autonomy?: "off" | "full";
   color?: string;
-  customInstructions?: string;
-  currentPrompt?: string;
+  prompt?: string;
   keepLoaded?: boolean;
 }
 
@@ -63,8 +62,7 @@ export interface StoredCustomRole {
   apiKeySet?: boolean;
   autonomy?: "off" | "full";
   defaultPrompt: string;
-  currentPrompt: string;
-  customInstructions?: string;
+  prompt?: string;
   keepLoaded?: boolean;
   createdAt: string;
 }
@@ -107,9 +105,11 @@ export interface UseRolesReturn {
   setAutonomy: (slug: string, mode: "off" | "full") => void;
   // Set terminal display color
   setColor: (slug: string, color: string) => void;
-  // Set custom instructions (up to 300 words)
-  setCustomInstructions: (slug: string, instructions: string) => boolean;
-  // Reset prompt to default
+  // Set role prompt (auto-truncates to 300 words)
+  setRolePrompt: (slug: string, promptText: string) => void;
+  // Backwards compatibility alias
+  setCustomInstructions?: (slug: string, instructions: string) => boolean;
+  // Reset prompt to empty
   resetPrompt: (slug: string) => void;
   // Toggle "keep loaded" memory pin
   setKeepLoaded: (slug: string, keep: boolean) => void;
@@ -124,7 +124,6 @@ export interface UseRolesReturn {
     assignmentType?: "local" | "cloud" | "custom_path";
     customPath?: string;
     prompt?: string;
-    customInstructions?: string;
     color?: string;
     autonomy?: "off" | "full";
   }) => boolean;
@@ -132,6 +131,8 @@ export interface UseRolesReturn {
   deleteCustomRole: (slug: string) => void;
   // Stop running background model servers
   stopBackgroundServer: (serverName?: string) => Promise<string>;
+  // Reload roles from disk
+  refresh: () => void;
 }
 
 export function useRoles(): UseRolesReturn {
@@ -169,9 +170,9 @@ export function useRoles(): UseRolesReturn {
 
       const sanitizedList: RoleDefinition[] = list.map((item) => {
         const cleanDefault = stripLayer1Rules(item.defaultPrompt);
-        const cleanCurrent = stripLayer1Rules(item.currentPrompt || item.defaultPrompt);
+        const rolePrompt = item.prompt ?? (item as any).customInstructions ?? "";
 
-        if (item.defaultPrompt !== cleanDefault || item.currentPrompt !== cleanCurrent) {
+        if (item.defaultPrompt !== cleanDefault || (item as any).currentPrompt || (item as any).customInstructions) {
           needsCustomMigration = true;
         }
 
@@ -190,8 +191,7 @@ export function useRoles(): UseRolesReturn {
           apiKeySet: item.apiKeySet,
           autonomy: item.autonomy || "off",
           defaultPrompt: cleanDefault,
-          currentPrompt: cleanCurrent,
-          customInstructions: item.customInstructions || "",
+          prompt: rolePrompt,
           keepLoaded: item.keepLoaded || false,
           isCustom: true,
           limits: {
@@ -201,7 +201,7 @@ export function useRoles(): UseRolesReturn {
         };
       });
 
-      // Self-healing migration: strip out raw Layer 1 security limits from custom-roles.json on disk
+      // Self-healing migration: strip out raw Layer 1 security limits and legacy keys from custom-roles.json on disk
       if (needsCustomMigration) {
         try {
           const cleanedForDisk: StoredCustomRole[] = sanitizedList.map((r) => ({
@@ -218,8 +218,7 @@ export function useRoles(): UseRolesReturn {
             apiKeySet: r.apiKeySet,
             autonomy: r.autonomy || "off",
             defaultPrompt: r.defaultPrompt,
-            currentPrompt: r.currentPrompt,
-            customInstructions: r.customInstructions,
+            prompt: r.prompt,
             keepLoaded: r.keepLoaded,
             createdAt: new Date().toISOString(),
           }));
@@ -253,8 +252,7 @@ export function useRoles(): UseRolesReturn {
         apiKeySet: r.apiKeySet,
         autonomy: r.autonomy || "off",
         defaultPrompt: stripLayer1Rules(r.defaultPrompt),
-        currentPrompt: stripLayer1Rules(r.currentPrompt),
-        customInstructions: r.customInstructions,
+        prompt: r.prompt || "",
         keepLoaded: r.keepLoaded,
         createdAt: new Date().toISOString(),
       }));
@@ -290,11 +288,11 @@ export function useRoles(): UseRolesReturn {
       const stored = storedRoles[builtin.slug];
       if (!stored) return { ...builtin };
 
-      let cleanedCurrentPrompt = stored.currentPrompt ? stripLayer1Rules(stored.currentPrompt) : builtin.currentPrompt;
-      if (stored.currentPrompt && stored.currentPrompt !== cleanedCurrentPrompt) {
+      if ((stored as any).currentPrompt || (stored as any).customInstructions) {
         needsConfigMigration = true;
-        stored.currentPrompt = cleanedCurrentPrompt;
       }
+
+      const rolePrompt = stored.prompt ?? (stored as any).customInstructions ?? builtin.prompt ?? "";
 
       return {
         ...builtin,
@@ -306,23 +304,40 @@ export function useRoles(): UseRolesReturn {
         apiKeySet: stored.apiKeySet ?? builtin.apiKeySet,
         autonomy: stored.autonomy ?? builtin.autonomy ?? "off",
         color: stored.color ?? builtin.color,
-        customInstructions: stored.customInstructions ?? builtin.customInstructions,
-        currentPrompt: cleanedCurrentPrompt,
+        prompt: rolePrompt,
         keepLoaded: stored.keepLoaded ?? builtin.keepLoaded,
       };
     });
 
-    // Self-healing migration: strip out raw Layer 1 security limits from config.json on disk
-    if (needsConfigMigration && fs.existsSync(configPath)) {
+    // Self-healing migration: strip out legacy currentPrompt/customInstructions/sessionPrompt from config.json on disk
+    if (fs.existsSync(configPath)) {
       try {
         const raw = fs.readFileSync(configPath, "utf-8");
         const parsed = JSON.parse(raw);
+        let changed = false;
+        if (parsed.sessionPrompt !== undefined) {
+          delete parsed.sessionPrompt;
+          changed = true;
+        }
+        if (parsed.prompt !== undefined) {
+          delete parsed.prompt;
+          changed = true;
+        }
         if (parsed && typeof parsed.roles === "object") {
           for (const roleKey of Object.keys(parsed.roles)) {
-            if (parsed.roles[roleKey].currentPrompt) {
-              parsed.roles[roleKey].currentPrompt = stripLayer1Rules(parsed.roles[roleKey].currentPrompt);
+            const r = parsed.roles[roleKey];
+            if (r.currentPrompt !== undefined) {
+              delete r.currentPrompt;
+              changed = true;
+            }
+            if (r.customInstructions !== undefined) {
+              r.prompt = r.prompt || r.customInstructions;
+              delete r.customInstructions;
+              changed = true;
             }
           }
+        }
+        if (changed || needsConfigMigration) {
           fs.writeFileSync(configPath, JSON.stringify(parsed, null, 2), "utf-8");
         }
       } catch {
@@ -354,6 +369,7 @@ export function useRoles(): UseRolesReturn {
           }
           if (!config.roles) config.roles = {};
 
+          const rolePrompt = target.prompt || "";
           config.roles[slug] = {
             enabled: target.enabled,
             model: target.model,
@@ -362,8 +378,7 @@ export function useRoles(): UseRolesReturn {
             apiKeySet: target.apiKeySet,
             autonomy: target.autonomy,
             color: target.color,
-            customInstructions: target.customInstructions,
-            currentPrompt: stripLayer1Rules(target.currentPrompt),
+            prompt: rolePrompt,
             keepLoaded: target.keepLoaded,
           };
 
@@ -501,24 +516,29 @@ export function useRoles(): UseRolesReturn {
     }));
   }, []);
 
-  // Set custom instructions with 300-word limit check (Sprint Plan §5)
-  const setCustomInstructions = useCallback((slug: string, instructions: string): boolean => {
-    const words = countWords(instructions);
-    if (words > 300) {
-      return false;
-    }
+  // Set role prompt with 300-word auto-truncation
+  const setRolePrompt = useCallback((slug: string, promptText: string) => {
+    const trimmed = promptText.trim();
+    const words = trimmed.split(/\s+/).filter(Boolean);
+    const truncated = words.length > 300 ? words.slice(0, 300).join(" ") : trimmed;
+
     persistRoleUpdate(slug, (prev) => ({
       ...prev,
-      customInstructions: instructions.trim(),
+      prompt: truncated,
     }));
-    return true;
   }, []);
 
-  // Reset prompt to default
+  // Backwards compatibility alias
+  const setCustomInstructions = useCallback((slug: string, instructions: string): boolean => {
+    setRolePrompt(slug, instructions);
+    return true;
+  }, [setRolePrompt]);
+
+  // Reset prompt to empty
   const resetPrompt = useCallback((slug: string) => {
     persistRoleUpdate(slug, (prev) => ({
       ...prev,
-      currentPrompt: prev.defaultPrompt,
+      prompt: "",
     }));
   }, []);
 
@@ -540,7 +560,6 @@ export function useRoles(): UseRolesReturn {
       assignmentType?: "local" | "cloud" | "custom_path";
       customPath?: string;
       prompt?: string;
-      customInstructions?: string;
       color?: string;
       autonomy?: "off" | "full";
     }): boolean => {
@@ -578,8 +597,7 @@ export function useRoles(): UseRolesReturn {
         customPath: customData.customPath,
         autonomy: customData.autonomy || "off",
         defaultPrompt: generatedPrompt,
-        currentPrompt: generatedPrompt,
-        customInstructions: customData.customInstructions || "",
+        prompt: customData.prompt || "",
         keepLoaded: false,
         isCustom: true,
         limits: {
@@ -637,11 +655,13 @@ export function useRoles(): UseRolesReturn {
     setAutonomy,
     setColor,
     setCustomInstructions,
+    setRolePrompt,
     resetPrompt,
     setKeepLoaded,
     rescanModels,
     addCustomRole,
     deleteCustomRole,
     stopBackgroundServer,
+    refresh: loadRolesState,
   };
 }

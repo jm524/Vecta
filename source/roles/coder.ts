@@ -48,8 +48,7 @@ export const coderRole: RoleDefinition = {
   enabled: true,
   color: "green",
   defaultPrompt: CODER_DEFAULT_PROMPT,
-  currentPrompt: CODER_DEFAULT_PROMPT,
-  customInstructions: "",
+  prompt: "",
   limits: {
     layer1: DEFAULT_LAYER_1_LIMITS,
     layer2: DEFAULT_LAYER_2_LIMITS,

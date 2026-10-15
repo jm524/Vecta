@@ -49,8 +49,7 @@ export const frontendEngineerRole: RoleDefinition = {
   enabled: false, // Default [off] per Doc 03 layout
   color: "cyan",
   defaultPrompt: FRONTEND_ENGINEER_DEFAULT_PROMPT,
-  currentPrompt: FRONTEND_ENGINEER_DEFAULT_PROMPT,
-  customInstructions: "",
+  prompt: "",
   assignmentType: "local",
   model: "llama3.1:8b",
   limits: {

@@ -42,8 +42,7 @@ export const documenterRole: RoleDefinition = {
   enabled: true,
   color: "magenta",
   defaultPrompt: DOCUMENTER_DEFAULT_PROMPT,
-  currentPrompt: DOCUMENTER_DEFAULT_PROMPT,
-  customInstructions: "",
+  prompt: "",
   limits: {
     layer1: DEFAULT_LAYER_1_LIMITS,
     layer2: DEFAULT_LAYER_2_LIMITS,

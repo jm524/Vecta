@@ -10,6 +10,7 @@ import { useQueue } from "./hooks/useQueue.js";
 import { engineBridge } from "./bridge/client.js";
 import { useRoles } from "./hooks/useRoles.js";
 import { AgentRoles } from "./commands/agent-roles.js";
+import { PromptEditor, PromptRolePicker, countWords } from "./commands/prompt-editor.js";
 import type { QueueDispatchPayload } from "./types/bridge.js";
 
 export const App: React.FC = () => {
@@ -35,8 +36,13 @@ export const App: React.FC = () => {
   // Chat scroll offset (0 = scrolled all the way to newest messages)
   const [scrollOffset, setScrollOffset] = useState(0);
 
-  // Active modal/screen overlay ("none" | "roles")
-  const [activeOverlay, setActiveOverlay] = useState<"none" | "roles">("none");
+  // Active modal/screen overlay ("none" | "roles" | "prompt")
+  const [activeOverlay, setActiveOverlay] = useState<"none" | "roles" | "prompt">("none");
+  const [promptTarget, setPromptTarget] = useState<
+    | { type: "picker" }
+    | { type: "role"; roleSlug: string; roleName: string; roleColor: string }
+    | null
+  >(null);
 
   // Role system hook managing worker state, catalog, and recommendations
   const rolesHook = useRoles();
@@ -75,8 +81,13 @@ export const App: React.FC = () => {
     checkBridge();
   }, []);
 
-  // Global keyboard shortcuts (Sidebar, Auto-accept, and Scrolling)
+  // Global keyboard shortcuts (Sidebar, Auto-accept, and PageUp/PageDown Scrolling)
   useInput((input, key) => {
+    // If an overlay screen is open, yield all inputs to the overlay
+    if (activeOverlay !== "none") {
+      return;
+    }
+
     // Ctrl + Right Arrow opens sidebar
     if (key.ctrl && key.rightArrow) {
       setSidebarOpen(true);
@@ -93,14 +104,14 @@ export const App: React.FC = () => {
       return;
     }
 
-    // Scroll Up: Up Arrow (1 line), PageUp (3 lines), Ctrl+Up, Shift+Up
-    if (key.upArrow || key.pageUp || (key.ctrl && key.upArrow) || (key.shift && key.upArrow)) {
-      setScrollOffset((prev) => prev + (key.pageUp ? 3 : 1));
+    // Scroll chat history ONLY with PageUp, PageDown, and terminal mouse wheel
+    // Up and Down arrow keys are strictly reserved for menu options and line navigation
+    if (key.pageUp || input.startsWith("\x1b[<64;") || input.includes("<64;")) {
+      setScrollOffset((prev) => prev + 2);
       return;
     }
-    // Scroll Down: Down Arrow (1 line), PageDown (3 lines), Ctrl+Down, Shift+Down
-    if (key.downArrow || key.pageDown || (key.ctrl && key.downArrow) || (key.shift && key.downArrow)) {
-      setScrollOffset((prev) => Math.max(0, prev - (key.pageDown ? 3 : 1)));
+    if (key.pageDown || input.startsWith("\x1b[<65;") || input.includes("<65;")) {
+      setScrollOffset((prev) => Math.max(0, prev - 2));
       return;
     }
   });
@@ -126,14 +137,91 @@ export const App: React.FC = () => {
   const handleUserPrompt = (promptText: string) => {
     const trimmed = promptText.trim();
 
-    // Exit commands
-    if (trimmed === "/exit" || trimmed === "/quit") {
+    // Exit command
+    if (trimmed === "/exit") {
       addMessage("System", "Exiting...", "yellow");
       setTimeout(() => {
         exit();
         engineBridge.stop();
         process.exit(0);
       }, 100);
+      return;
+    }
+
+    // Role prompt picker (/prompt)
+    if (trimmed === "/prompt") {
+      setPromptTarget({ type: "picker" });
+      setActiveOverlay("prompt");
+      return;
+    }
+
+    // Role prompt command (/prompt <role>)
+    if (trimmed.startsWith("/prompt ")) {
+      const identifier = trimmed.slice(8).trim().toLowerCase();
+      const found = rolesHook.roles.find((r) => {
+        const rSlug = r.slug.toLowerCase();
+        const rName = r.name.toLowerCase();
+        const rNameClean = rName.replace(/[\r\n\s]+/g, " ");
+        const rNameHyphen = rName.replace(/[\r\n\s]+/g, "-");
+        return (
+          rSlug === identifier ||
+          rName === identifier ||
+          rNameClean === identifier ||
+          rNameHyphen === identifier ||
+          rSlug === identifier.replace(/\s+/g, "-") ||
+          rSlug.replace(/-/g, " ") === identifier
+        );
+      });
+      if (found) {
+        setPromptTarget({
+          type: "role",
+          roleSlug: found.slug,
+          roleName: found.name,
+          roleColor: found.color,
+        });
+        setActiveOverlay("prompt");
+      } else {
+        addMessage(
+          "System",
+          `Role "${identifier}" not found. Available roles: ${rolesHook.roles.map((r) => r.name).join(", ")}`,
+          "yellow"
+        );
+      }
+      return;
+    }
+
+    // Direct role prompt command (/<role> prompt, e.g. /coder prompt, /code reviewer prompt)
+    if (trimmed.startsWith("/") && /\s+prompt$/i.test(trimmed)) {
+      const identifier = trimmed.slice(1).replace(/\s+prompt$/i, "").trim().toLowerCase();
+      const found = rolesHook.roles.find((r) => {
+        const rSlug = r.slug.toLowerCase();
+        const rName = r.name.toLowerCase();
+        const rNameClean = rName.replace(/[\r\n\s]+/g, " ");
+        const rNameHyphen = rName.replace(/[\r\n\s]+/g, "-");
+        return (
+          rSlug === identifier ||
+          rName === identifier ||
+          rNameClean === identifier ||
+          rNameHyphen === identifier ||
+          rSlug === identifier.replace(/\s+/g, "-") ||
+          rSlug.replace(/-/g, " ") === identifier
+        );
+      });
+      if (found) {
+        setPromptTarget({
+          type: "role",
+          roleSlug: found.slug,
+          roleName: found.name,
+          roleColor: found.color,
+        });
+        setActiveOverlay("prompt");
+      } else {
+        addMessage(
+          "System",
+          `Role "${identifier}" not found. Available roles: ${rolesHook.roles.map((r) => r.name).join(", ")}`,
+          "yellow"
+        );
+      }
       return;
     }
 
@@ -182,11 +270,13 @@ export const App: React.FC = () => {
           "",
           "Commands:",
           "  /roles (or /agent roles) - Open interactive AI roles manager (models, colors, prompts, autonomy)",
+          "  /prompt                  - Select a role to edit its prompt instructions (up to 300 words)",
+          "  /prompt <role>           - Shortcut to edit a specific role prompt (e.g. /prompt coder or /coder prompt)",
           "  /build                   - Switch to BUILD mode (code generation and execution)",
           "  /plan                    - Switch to PLAN mode (architectural breakdown)",
           "  /server stop             - Stop running background model inference servers (Ollama, LM Studio)",
           "  /help                    - Display this command index and shortcut reference",
-          "  /exit, /quit             - Cleanly close and exit Vecta",
+          "  /exit                    - Cleanly close and exit Vecta",
           "",
           "Keyboard Shortcuts:",
           "  Tab            - Toggle mode between PLANNING (architecture) and BUILD (code generation)",
@@ -333,9 +423,67 @@ export const App: React.FC = () => {
     return (
       <Box width={terminalSize.columns} height={appHeight}>
         <AgentRoles
-          onClose={() => setActiveOverlay("none")}
+          onClose={() => {
+            rolesHook.refresh();
+            setActiveOverlay("none");
+          }}
           rolesHook={rolesHook}
           terminalSize={terminalSize}
+        />
+      </Box>
+    );
+  }
+
+  // If the prompt overlay is open
+  if (activeOverlay === "prompt" && promptTarget) {
+    if (promptTarget.type === "picker") {
+      return (
+        <Box width={terminalSize.columns} height={appHeight}>
+          <PromptRolePicker
+            roles={rolesHook.roles}
+            terminalSize={terminalSize}
+            onSelectRole={(role) => {
+              setPromptTarget({
+                type: "role",
+                roleSlug: role.slug,
+                roleName: role.name,
+                roleColor: role.color,
+              });
+            }}
+            onClose={() => {
+              setActiveOverlay("none");
+              setPromptTarget(null);
+            }}
+          />
+        </Box>
+      );
+    }
+
+    const activeRole = rolesHook.roles.find((r) => r.slug === promptTarget.roleSlug);
+    const title = `${promptTarget.roleName} Role`;
+    const initialVal = activeRole?.prompt || "";
+    const roleColor = promptTarget.roleColor;
+
+    return (
+      <Box width={terminalSize.columns} height={appHeight}>
+        <PromptEditor
+          title={title}
+          roleSlug={promptTarget.roleSlug}
+          initialValue={initialVal}
+          roleColor={roleColor}
+          terminalSize={terminalSize}
+          onSave={(saved) => {
+            rolesHook.setRolePrompt(promptTarget.roleSlug, saved);
+            addMessage(
+              "System",
+              `Prompt saved for ${promptTarget.roleName} (${countWords(saved)}/300 words).`,
+              "green"
+            );
+          }}
+          onClose={() => {
+            setActiveOverlay("none");
+            setPromptTarget(null);
+          }}
         />
       </Box>
     );
@@ -354,6 +502,7 @@ export const App: React.FC = () => {
         availableHeight={appHeight}
         availableWidth={chatWidth}
         scrollOffset={scrollOffset}
+        roles={rolesHook.roles}
       />
 
       {/* Optional Right Sidebar */}
