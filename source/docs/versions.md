@@ -102,3 +102,39 @@
 - Implemented `test-e2e.ts` automating the complete E2E task pipeline lifecycle (Manager → Coder → Documenter).
 - Verified `task-relay.tmp` file handshakes function as expected, triggering Documenter's passive `raw.log` creation upon completion of a worker role task.
 - Validated integration between the Node.js TypeScript queue and the native Go engine execution via stdio JSON bridge.
+
+### v0.0.8 — October 11, 2026
+#### Added
+- Implemented native Go hardware and environment scanner in `engine/scanner/scanner.go`.
+- Added hardware detection for total and available system RAM, CPU cores, GPU/VRAM, and disk storage.
+- Implemented runtime port probing for active local model engines: Ollama (`11434`), LM Studio (`1234`), and llama.cpp (`8080`).
+- Added `hw_scan` action and JSON bridge payload contracts in `interface/src/types/bridge.ts` and `engine/main.go`.
+- Added debounced hardware scanning triggers and atomic scanning lock (`isScanningRef`) in `useRoles.ts`.
+
+### v0.0.9 — October 12, 2026
+#### Added
+- Implemented model catalog discovery querying active local runtime endpoints and scanning local filesystem for `.gguf` model weights.
+- Implemented resource-aware recommendation engine in `interface/src/services/recommendation.ts`.
+- Added dynamic model fitting algorithms evaluating parameter sizing against detected system RAM and VRAM.
+- Added system health advisories (`buildSystemAdvisories`) including high memory warnings and browser closing suggestions when available RAM is constrained.
+- Added starter model recommendations with exact installation and download commands tailored to the host OS (Windows, macOS, Linux).
+
+### v0.0.10 — October 13, 2026
+#### Added
+- Integrated model catalog and hardware detection directly into `/agent roles` and the CLI interface.
+- Implemented transparent background inference server lifecycle management with the `/server stop` slash command to release background process memory.
+- Added active server indicator badges in `/agent roles` header (`[Server active: Ollama (11434)]`).
+- Decoupled Layer 1 security limits (`LAYER_1_SYSTEM_PROMPT_RULES`) from stored configuration files (`config.json`, `custom-roles.json`), connecting them dynamically at runtime via `assembleTaskPrompt()` to prevent tampering.
+
+### v0.0.11 — October 14, 2026
+#### Added
+- Full interactive `/roles` and `/agent roles` management terminal screen using Ink.
+- Restored full 5-Step Custom Role Creation Wizard per Claude Doc 21 (Name, Function, Agent Assignment with Detected Models sub-dropdown, Base Prompt, Custom Instructions).
+- Bidirectional wizard navigation using Left and Right arrow keys for input review.
+- Borderless terminal aesthetic across all views (`roster`, `drilldown`, `switch_agent`, `wizard`, `edit_prompt`, `input_text`, `color_palette`).
+- Multi-line role prompt editor with smooth arrow/touchpad scrolling, floating visual scrollbar rail, active line tracker (`>`), and character cursor (`█`).
+- Main interface cleanup: removed outer chat box border, relocated mode indicator (`[PLAN]` / `[BUILD]`) into the top of the sidebar, added idempotent `/build` and `/plan` slash commands, and updated `/help` with the `Tab` shortcut.
+- Anti-collapse layout: implemented windowed scrolling for roster and drilldown actions with `flexShrink={0}`.
+- Isolated tab-scoped feedback messages with 3.5s auto-dismiss timers, dedicated 1-line slots, and responsive layout adapting so shortcuts never get pushed off screen.
+- Formatted model download commands as separate bullet points below each recommendation.
+

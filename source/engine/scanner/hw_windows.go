@@ -42,6 +42,7 @@ type PlatformHardwareResult struct {
 	IsNVMe         bool
 	DiskModel      string
 	HasAVX2        bool
+	AIAcceleration string
 	CPUL2CacheMb   string
 	CPUL3CacheMb   string
 	RAMSpeedMHz    int
@@ -110,6 +111,9 @@ func detectPlatformHardware(ctx context.Context) (PlatformHardwareResult, error)
 	// 40 = PF_AVX2_INSTRUCTIONS_AVAILABLE
 	if ret, _, _ := isProcessorFeaturePresent.Call(40); ret != 0 {
 		result.HasAVX2 = true
+		result.AIAcceleration = "AVX2 Supported (Ultra-fast quantized math)"
+	} else {
+		result.AIAcceleration = "Standard CPU (No AVX2)"
 	}
 
 	getSystemPowerStatus := kernel32.NewProc("GetSystemPowerStatus")

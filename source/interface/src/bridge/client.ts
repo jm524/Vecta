@@ -1,12 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import readline from "node:readline";
-import path from "node:path";
-import fs from "node:fs";
-import { fileURLToPath } from "node:url";
+import * as readline from "node:readline";
+import * as path from "node:path";
+import * as fs from "node:fs";
 import type { BridgeRequest, BridgeResponse, HardwareScanResult } from "../types/bridge.js";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // This class manages the running Go engine subprocess.
 // It sends JSON messages into Go's stdin and waits for answers on Go's stdout.
@@ -53,9 +49,9 @@ export class EngineBridge {
 
     // Clean up if the Go engine stops unexpectedly.
     this.process.on("close", (code: number | null) => {
-      for (const [id, req] of this.pendingRequests.entries()) {
+      this.pendingRequests.forEach((req, id) => {
         req.reject(new Error(`Go engine exited with code ${code} while waiting for response to ${id}`));
-      }
+      });
       this.pendingRequests.clear();
       this.process = null;
     });
@@ -126,22 +122,37 @@ export class EngineBridge {
   // Checks candidate paths to prevent bundled mode resolution failures (BUG-003).
   private getEngineBinaryPath(): string {
     const isWindows = process.platform === "win32";
-    const binaryName = isWindows ? "vecta-engine.exe" : "vecta-engine";
+    const binaryNames = isWindows
+      ? ["vecta-engine.exe", "engine.exe"]
+      : ["vecta-engine", "engine"];
 
-    const candidates = [
-      path.resolve(__dirname, "..", "..", "..", "engine", binaryName),
-      path.resolve(__dirname, "..", "..", "engine", binaryName),
-      path.resolve(process.cwd(), "source", "engine", binaryName),
-      path.resolve(process.cwd(), "engine", binaryName),
+    const scriptDir = process.argv[1] ? path.dirname(process.argv[1]) : process.cwd();
+    const execDir = path.dirname(process.execPath);
+
+    const searchDirs = [
+      path.resolve(process.cwd(), "source", "engine"),
+      path.resolve(process.cwd(), "engine"),
+      path.resolve(process.cwd(), "..", "engine"),
+      path.resolve(process.cwd(), "..", "..", "engine"),
+      path.resolve(scriptDir, "..", "..", "..", "engine"),
+      path.resolve(scriptDir, "..", "..", "engine"),
+      path.resolve(scriptDir, "..", "engine"),
+      path.resolve(scriptDir, "engine"),
+      scriptDir,
+      path.resolve(execDir, "engine"),
+      execDir,
     ];
 
-    for (const candidate of candidates) {
-      if (fs.existsSync(candidate)) {
-        return candidate;
+    for (const name of binaryNames) {
+      for (const dir of searchDirs) {
+        const fullPath = path.resolve(dir, name);
+        if (fs.existsSync(fullPath)) {
+          return fullPath;
+        }
       }
     }
 
-    return candidates[0]!;
+    return path.resolve(searchDirs[0]!, binaryNames[0]!);
   }
 
   // Parses one line of text from Go and matches it to its waiting request.

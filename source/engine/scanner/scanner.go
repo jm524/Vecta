@@ -72,6 +72,7 @@ type HardwareInfo struct {
 	CPUL2CacheMb      string      `json:"cpuL2CacheMb,omitempty"`
 	CPUL3CacheMb      string      `json:"cpuL3CacheMb,omitempty"`
 	HasAVX2           bool        `json:"hasAvx2"`
+	AIAcceleration    string      `json:"aiAcceleration,omitempty"`
 	RAMSpeedMHz       int         `json:"ramSpeedMhz,omitempty"`
 	PowerSource       string      `json:"powerSource"`
 	BatteryPercent    int         `json:"batteryPercent"`
@@ -233,6 +234,13 @@ func detectHardware(ctx context.Context) (*HardwareInfo, error) {
 
 	// CPU Cache, AI Instruction extensions, RAM speed, and Power status
 	info.HasAVX2 = platRes.HasAVX2
+	if platRes.AIAcceleration != "" {
+		info.AIAcceleration = platRes.AIAcceleration
+	} else if info.HasAVX2 {
+		info.AIAcceleration = "AVX2 Supported (Ultra-fast quantized math)"
+	} else {
+		info.AIAcceleration = "Standard CPU (No AVX2)"
+	}
 	info.CPUL2CacheMb = platRes.CPUL2CacheMb
 	info.CPUL3CacheMb = platRes.CPUL3CacheMb
 	info.RAMSpeedMHz = platRes.RAMSpeedMHz

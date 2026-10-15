@@ -23,16 +23,25 @@ async function runTest(): Promise<void> {
       console.log(`- Logical Processors: ${res.data.hardware.logicalProcessors}`);
       console.log(`- Current Usage: ${res.data.hardware.cpuUsagePercent}%`);
       if (res.data.hardware.cpuL2CacheMb || res.data.hardware.cpuL3CacheMb) {
-        console.log(`- Hardware Cache: L2: ${res.data.hardware.cpuL2CacheMb || "N/A"} | L3: ${res.data.hardware.cpuL3CacheMb || "N/A"} (High-Speed Smart Cache)`);
+        const cacheParts: string[] = [];
+        if (res.data.hardware.cpuL2CacheMb) {
+          cacheParts.push(`L2: ${res.data.hardware.cpuL2CacheMb}`);
+        }
+        if (res.data.hardware.cpuL3CacheMb) {
+          cacheParts.push(`L3: ${res.data.hardware.cpuL3CacheMb}`);
+        }
+        console.log(`- Hardware Cache: ${cacheParts.join(" | ")} (High-Speed Smart Cache)`);
       }
-      console.log(`- AI Acceleration: ${res.data.hardware.hasAvx2 ? "AVX2 Supported (Ultra-fast quantized math)" : "Standard CPU (No AVX2)"}`);
+      const aiAcc = res.data.hardware.aiAcceleration || (res.data.hardware.hasAvx2 ? "AVX2 Supported (Ultra-fast quantized math)" : "Standard CPU (No AVX2)");
+      console.log(`- AI Acceleration: ${aiAcc}`);
 
       console.log(`\nRAM & Virtual Memory:`);
       console.log(`- Physical Total: ${res.data.hardware.totalRamGb} | Available: ${res.data.hardware.freeRamGb} (${res.data.hardware.ramUsagePercent}% load)`);
       if (res.data.hardware.ramSpeedMhz && res.data.hardware.ramSpeedMhz > 0) {
         console.log(`- Memory Speed: ${res.data.hardware.ramSpeedMhz} MHz (High-Bandwidth)`);
       }
-      console.log(`- Windows Pagefile: ${res.data.hardware.pagefileGb} allocated (Emergency spillover backup)`);
+      const swapLabel = res.data.hardware.os === "windows" ? "Windows Pagefile" : "Swap Memory";
+      console.log(`- ${swapLabel}: ${res.data.hardware.pagefileGb} allocated (Emergency spillover backup)`);
 
       console.log(`\nStorage (Disk & NVMe SSD):`);
       console.log(`- Free Space: ${res.data.hardware.freeDiskGb}`);

@@ -75,6 +75,7 @@ export interface HardwareInfo {
   cpuL2CacheMb?: string;
   cpuL3CacheMb?: string;
   hasAvx2: boolean;
+  aiAcceleration?: string;
   ramSpeedMhz?: number;
   powerSource: string;
   batteryPercent: number;

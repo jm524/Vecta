@@ -123,6 +123,7 @@ tags:
 > 5. **Role Drilldown 3-Line Preview:** Expanded prompt preview to 3 visible lines followed by indented `...`.
 > 6. **Main Interface Mode Relocation & Borderless Chat:** Removed outer chat border, relocated the `[PLAN]` / `[BUILD]` mode indicator to the top of the sidebar, added idempotent `/build` and `/plan` commands, documented `Tab` mode switching in `/help`, and added visible typing cursor (`█`) across all inputs.
 > 7. **Status Banner Spacing:** Standardized vertical margins (`marginY={1}`) across all feedback and status messages.
+> 9. ***Scanner for CLI's or 
 
 > [!done] 18. UX Polish, Borderless Screens, Dynamic Hardware Recommendations & Anti-Collapse Layout
 > **Location:** Interface (`agent-roles.tsx`, `Chat.tsx`)
