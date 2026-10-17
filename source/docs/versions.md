@@ -149,4 +149,52 @@
 - Updated Windows build pipeline `source/scripts/build.ps1` to automatically build `keymonitor.exe` into `dist/helpers/`.
 - Appended `(Press Tab To Switch)` next to `MODE` in `Sidebar.tsx` and updated README Kanban milestones.
 
+### v0.0.13 — October 16, 2026
+#### Added
+- **Disk-Backed Chat & Project Storage Service (`source/interface/src/services/chat-service.ts`):**
+  - Fully persistent CRUD operations for chat histories and project workspaces isolated in `.vecta/chats/[chat-id]/` (`meta.json`, `messages.json`) and `.vecta/projects/[project-id]/` (`meta.json`).
+  - Indexing systems (`.vecta/chats/index.json` and `.vecta/projects/index.json`) with sorting (pinned items prioritized, then descending by `updatedAt`).
+  - Safe project teardown: deleting a project automatically disassociates child chats to standalone status, ensuring zero loss of chat histories.
+  - Chat directory cleanup on deletion removing on-disk artifacts cleanly.
+- **Interactive `/chats` Overlay (`source/interface/src/commands/chats.tsx`):**
+  - Option 0 always dedicated to `+ New chat` with inline title entry or default instant timestamp creation.
+  - Displays standalone and project-scoped chats with `[PIN]` tags, `(current)` active badge, message counters, and formatted compact dates (`Today, ...`, `Yesterday, ...`, `Oct 16, ...`).
+  - Full keyboard shortcuts: `Up`/`Down` navigation, `Enter` to open/create, `p` to toggle pin status, `r` for inline renaming, `d` for double-tap deletion confirmation, and `Esc` to close or return.
+  - Borderless UI with windowed scrolling for short viewports (< 24 lines) without text collapse.
+  - Strict zero-emoji compliance.
+- **Interactive `/projects` Overlay (`source/interface/src/commands/projects.tsx`):**
+  - Option 0 always dedicated to `+ New project` with inline naming buffer.
+  - Lists workspace containers with `[PIN]` badges and live child chat counters `(X chats)`.
+  - Workspace drill-down: pressing `Enter` on a project transitions into project-scoped `/chats` view.
+  - Project-scoped chat creation: new chats created within a project workspace automatically link `projectId`.
+  - Nested back-navigation: `Esc` inside project workspace returns cleanly to project list, while `Esc` at the root project list exits the overlay.
+- **Persistent Session State Hook (`source/interface/src/hooks/useSession.ts`):**
+  - Synchronous hydration on application startup loading the latest active chat and its complete message history.
+  - Automatic disk persistence on every incoming user message and agent role response.
+  - Instant session switching upon chat selection in `/chats` or `/projects`.
+- **Enhanced Layout & Table Columns for `/chats` and `/projects`:**
+  - Separated `/chats` into distinct **"General Chats"** (3 columns: Name, Messages, Last Edited) and **"Project Chats"** (4 columns: Name, Project, Messages, Last Edited).
+  - Aligned `/projects` list into consistent 3 columns (Name, Chats active, Last Edited).
+  - Responsive line wrapping: metadata cleanly wraps onto indented line 2 (`marginLeft={3}`) on narrow viewports (< 70 for 3-col, < 85 for 4-col) without horizontal clipping.
+  - Decoupled touchpad scrolling: touchpad and mouse wheel scroll the page viewport and scrollbar rail without moving selection; arrow keys navigate items and auto-scroll.
+  - Shuffled alphanumeric unique IDs: randomized hashes for chats (`chat_...`) and projects (`proj_...`).
+  - Flexible project deletion: double-tap `d` offers `[d]` cascade delete project and child chats vs. `[s]` delete project container but preserve child chats as standalone.
+  - 24-hour edit window date formatting: relative times (`Just now`, `Xm ago`, `Xh Xm ago`) within 24 hours; exact calendar day (`Oct 16`, `Oct 16, 2025`) once past 24 hours.
+  - Zero emojis compliance across all UI components, status badges, and logs.
+- **Interactive `/queue` Modal Dialog & Pipeline Visualizer (`source/interface/src/commands/queue.tsx` & `source/interface/src/components/QueueModal.tsx`):**
+  - **Pipeline Execution Chain:** Renders the active multi-stage sequence assembled by Manager (`Manager -> Coder -> Code Reviewer -> Documenter`) highlighted in configured role colors. Documenter is strictly last and non-wrapping (`flexShrink={0}`).
+  - **Execution Queue Task List:** Displays live status badges (`[✓]` done, `[●]` active, `[ ]` queued, `[✗]` error), Stage indicator `[Stage X]`, duty prompt summaries, and consumed token counters.
+  - **Task Inspector Section:** Clean line-by-line breakdown displaying role, assigned model and type (`[local]` / `[cloud]`), execution status with duration/progress indicator, Layer 1 boundary restrictions (`source/` containment enforced by Go engine), prompt instructions, and output summary.
+  - **Conditional Scrollbars & Responsiveness:**
+    - Dynamic scrollbar rail (`█` thumb) renders on the task list **if and only if** tasks exceed the container.
+    - Dedicated scrollbar rail renders on the task inspector **if and only if** detail content exceeds container height.
+    - Full cross-platform touchpad / mouse wheel and `PgUp`/`PgDn` support.
+  - **Keyboard Ergonomics:** `Ctrl+Q` global shortcut from chat area, `/queue` slash command with autocomplete, `Esc` to close modal, and status bar hint `[Ctrl+Q] Queue`.
+- **UI Integration & Autocomplete (`Chat.tsx`, `app.tsx`, `help.tsx`, `StatusBar.tsx`):**
+  - Registered `/chats`, `/projects`, and `/queue` in `BASE_SLASH_COMMANDS` dropdown autocomplete.
+  - Integrated `/chats`, `/projects`, and `/queue` into `/help` command output cheatsheet and `help.tsx`.
+  - Wired full-screen overlay routing in `app.tsx`.
+  - Updated status bar shortcut hint to `[Ctrl+Q] Queue`.
+
+
 

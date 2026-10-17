@@ -40,6 +40,12 @@ export const HelpCommand: React.FC<HelpCommandProps> = ({ onClose, terminalSize 
         </Text>
         <Box marginLeft={2} flexDirection="column">
           <Text color="cyan">/roles (or /agent roles) <Text color="gray">- Open interactive worker roles manager</Text></Text>
+          <Text color="cyan">/prompt                  <Text color="gray">- Edit worker prompts (/prompt &lt;role&gt;)</Text></Text>
+          <Text color="cyan">/chats                   <Text color="gray">- List, create, rename, pin, or switch chats</Text></Text>
+          <Text color="cyan">/projects                <Text color="gray">- Project workspaces and scoped chats</Text></Text>
+          <Text color="cyan">/queue                   <Text color="gray">- Inspect real-time task execution pipeline</Text></Text>
+          <Text color="cyan">/build                   <Text color="gray">- Switch to BUILD mode</Text></Text>
+          <Text color="cyan">/plan                    <Text color="gray">- Switch to PLAN mode</Text></Text>
           <Text color="cyan">/server stop             <Text color="gray">- Stop running local AI servers (Ollama, LM Studio)</Text></Text>
           <Text color="cyan">/help                    <Text color="gray">- Show this command and keyboard shortcut guide</Text></Text>
           <Text color="cyan">/exit                    <Text color="gray">- Exit Vecta cleanly</Text></Text>

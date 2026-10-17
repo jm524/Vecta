@@ -11,6 +11,10 @@ import { engineBridge } from "./bridge/client.js";
 import { useRoles } from "./hooks/useRoles.js";
 import { AgentRoles } from "./commands/agent-roles.js";
 import { PromptEditor, PromptRolePicker, countWords } from "./commands/prompt-editor.js";
+import { ChatsView } from "./commands/chats.js";
+import { ProjectsView } from "./commands/projects.js";
+import { QueueView } from "./commands/queue.js";
+import { useSession } from "./hooks/useSession.js";
 import type { QueueDispatchPayload } from "./types/bridge.js";
 
 export const App: React.FC = () => {
@@ -19,7 +23,7 @@ export const App: React.FC = () => {
   const { mode, setMode } = useModeTab("IMPLEMENTATION");
 
   // Hook for strictly sequential FIFO task execution
-  const { tasks, totalTokensUsed, dispatchPipeline } = useQueue();
+  const { tasks, totalTokensUsed, dispatchPipeline, clearQueue, isProcessing, activeTask } = useQueue();
 
   // Track dynamic terminal window size so Vecta fills the entire screen
   const [terminalSize, setTerminalSize] = useState({
@@ -36,8 +40,8 @@ export const App: React.FC = () => {
   // Chat scroll offset (0 = scrolled all the way to newest messages)
   const [scrollOffset, setScrollOffset] = useState(0);
 
-  // Active modal/screen overlay ("none" | "roles" | "prompt")
-  const [activeOverlay, setActiveOverlay] = useState<"none" | "roles" | "prompt">("none");
+  // Active modal/screen overlay ("none" | "roles" | "prompt" | "chats" | "projects" | "queue")
+  const [activeOverlay, setActiveOverlay] = useState<"none" | "roles" | "prompt" | "chats" | "projects" | "queue">("none");
   const [promptTarget, setPromptTarget] = useState<
     | { type: "picker" }
     | { type: "role"; roleSlug: string; roleName: string; roleColor: string }
@@ -47,8 +51,8 @@ export const App: React.FC = () => {
   // Role system hook managing worker state, catalog, and recommendations
   const rolesHook = useRoles();
 
-  // Conversation messages
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Persistent session management (chats and projects)
+  const session = useSession(rolesHook.getRoleColor);
 
   // Listen for terminal resize events so Vecta always fills the whole window
   useEffect(() => {
@@ -103,6 +107,11 @@ export const App: React.FC = () => {
       setAutoAccept((prev) => !prev);
       return;
     }
+    // Ctrl + Q opens queue inspector
+    if (key.ctrl && (input === "q" || input === "Q")) {
+      setActiveOverlay("queue");
+      return;
+    }
 
     // Scroll chat history ONLY with PageUp, PageDown, and terminal mouse wheel
     // Up and Down arrow keys are strictly reserved for menu options and line navigation
@@ -117,19 +126,7 @@ export const App: React.FC = () => {
   });
 
   const addMessage = (sender: string, text: string, color?: string) => {
-    const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const resolvedColor =
-      color || (sender === "User" ? "yellow" : sender === "System" ? "cyan" : rolesHook.getRoleColor(sender));
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: String(Date.now() + Math.random()),
-        sender,
-        text,
-        color: resolvedColor,
-        timestamp: time,
-      },
-    ]);
+    session.addMessage(sender, text, color);
     // Reset scroll offset on new message so user sees newest activity
     setScrollOffset(0);
   };
@@ -231,6 +228,24 @@ export const App: React.FC = () => {
       return;
     }
 
+    // Chats screen command (/chats)
+    if (trimmed === "/chats") {
+      setActiveOverlay("chats");
+      return;
+    }
+
+    // Projects screen command (/projects)
+    if (trimmed === "/projects") {
+      setActiveOverlay("projects");
+      return;
+    }
+
+    // Queue screen command (/queue)
+    if (trimmed === "/queue") {
+      setActiveOverlay("queue");
+      return;
+    }
+
     // Build mode command (Requirement 6)
     if (trimmed === "/build") {
       if (mode === "IMPLEMENTATION") {
@@ -272,6 +287,9 @@ export const App: React.FC = () => {
           "  /roles (or /agent roles) - Open interactive AI roles manager (models, colors, prompts, autonomy)",
           "  /prompt                  - Select a role to edit its prompt instructions (up to 300 words)",
           "  /prompt <role>           - Shortcut to edit a specific role prompt (e.g. /prompt coder or /coder prompt)",
+          "  /chats                   - List, create, rename, pin, or switch chats",
+          "  /projects                - Project workspaces and scoped chats",
+          "  /queue                   - Open real-time task queue inspector",
           "  /build                   - Switch to BUILD mode (code generation and execution)",
           "  /plan                    - Switch to PLAN mode (architectural breakdown)",
           "  /server stop             - Stop running background model inference servers (Ollama, LM Studio)",
@@ -291,6 +309,14 @@ export const App: React.FC = () => {
           "  Space          - Toggle worker role on or off (Orchestrators & Documenter stay on)",
           "  Enter          - Drill down into role settings or select action",
           "  Esc            - Go back one level or close the roles screen",
+          "",
+          "Inside /chats & /projects:",
+          "  Up / Down      - Navigate items",
+          "  Enter          - Open chat or drill into project workspace",
+          "  p              - Toggle pin status",
+          "  r              - Rename chat or project inline",
+          "  d              - Delete chat or project (press d again to confirm)",
+          "  Esc            - Go back or exit",
         ].join("\n"),
         "cyan"
       );
@@ -489,13 +515,68 @@ export const App: React.FC = () => {
     );
   }
 
+  // If the chats screen is open
+  if (activeOverlay === "chats") {
+    return (
+      <Box width={terminalSize.columns} height={appHeight}>
+        <ChatsView
+          activeChatId={session.activeChatId}
+          terminalSize={terminalSize}
+          onSelectChat={(chatId) => {
+            session.selectChat(chatId);
+            setActiveOverlay("none");
+            setScrollOffset(0);
+          }}
+          onClose={() => setActiveOverlay("none")}
+        />
+      </Box>
+    );
+  }
+
+  // If the projects screen is open
+  if (activeOverlay === "projects") {
+    return (
+      <Box width={terminalSize.columns} height={appHeight}>
+        <ProjectsView
+          activeChatId={session.activeChatId}
+          terminalSize={terminalSize}
+          onSelectChat={(chatId) => {
+            session.selectChat(chatId);
+            setActiveOverlay("none");
+            setScrollOffset(0);
+          }}
+          onClose={() => setActiveOverlay("none")}
+        />
+      </Box>
+    );
+  }
+
+  // If the queue inspector screen is open
+  if (activeOverlay === "queue") {
+    return (
+      <Box width={terminalSize.columns} height={appHeight}>
+        <QueueView
+          tasks={tasks}
+          activeTask={activeTask}
+          isProcessing={isProcessing}
+          totalTokensUsed={totalTokensUsed}
+          terminalSize={terminalSize}
+          onClose={() => setActiveOverlay("none")}
+          onClearQueue={clearQueue}
+          getRoleColor={rolesHook.getRoleColor}
+          roles={rolesHook.roles}
+        />
+      </Box>
+    );
+  }
+
   return (
     // Fills entire terminal window dynamically
     <Box flexDirection="row" width={terminalSize.columns} height={appHeight} gap={1} padding={0}>
       {/* Main Chat Panel */}
       <Chat
         mode={mode}
-        messages={messages}
+        messages={session.messages}
         onSendMessage={handleUserPrompt}
         getRoleColor={rolesHook.getRoleColor}
         autoAccept={autoAccept}

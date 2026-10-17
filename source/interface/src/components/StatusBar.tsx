@@ -47,7 +47,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         <Text dimColor>│</Text>
         <Text dimColor>{sidebarOpen ? "[Ctrl+←] Close Sidebar" : "[Ctrl+→] Open Sidebar"}</Text>
         <Text dimColor>│</Text>
-        <Text dimColor>[q] Queue</Text>
+        <Text dimColor>[Ctrl+Q] Queue</Text>
         <Text dimColor>│</Text>
         <Text dimColor>[/exit] Quit</Text>
       </Box>
