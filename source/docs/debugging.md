@@ -152,6 +152,55 @@
 - **Root Cause:** In `edit_prompt`, the prompt is split into multi-line wrapped rows with a line-level pointer (`promptLineCursor`), but character-level cursor offset tracking (`cursorCol` or inline character cursor) within the active line is not calculated per character, resulting in an inexact cursor position while editing.
 - **Fix:** In progress — implement granular character-level offset calculation for the multi-line editor buffer.
 
+#### BUG-017 (Major): Active Chat Memory State Leak After Chat or Project Deletion
+- **Location:** `source/interface/src/commands/chats.tsx`, `source/interface/src/commands/projects.tsx`, `source/interface/src/hooks/useSession.ts`
+- **Symptom:** When a user deletes the currently active chat in `/chats`, or deletes a project containing the active chat in `/projects` (via Option A 'd'), the chat files on disk are removed, but `session.activeChatId` remains set in memory. Sending a subsequent message causes `addMessage` to attempt writing messages to the deleted folder or orphan `meta.json`, causing corrupt state and broken session persistence.
+- **Root Cause:** Deletion callbacks in `chats.tsx` (`mode === "confirm-delete"`) and `projects.tsx` do not check if `targetChat.id === activeChatId` or `targetProj.chatIds.includes(activeChatId)`. They fail to notify `useSession` or call `session.startBlankChat()`.
+- **Fix:** In `chats.tsx` and `projects.tsx`, detect if `activeChatId` was removed; if so, trigger a callback to reset `session.startBlankChat()`.
+
+#### BUG-018 (Medium): Project Renaming Inconsistency Across Memory Scopes
+- **Location:** `source/interface/src/services/chat-service.ts`, `source/state/memory.ts`
+- **Symptom:** Renaming a project in `/projects` updates `projects/index.json` and `meta.json`, but does not update `scopeName` in `.vecta/projects/[projectId]/CCM.json`. Navigating to `/memory` continues to display the stale project name until manually edited.
+- **Root Cause:** `chatService.renameProject` modifies only `meta.json` and `projects/index.json`. It does not propagate the updated name into the project's CCM file or memory cache.
+- **Fix:** Update `renameProject` to check if `.vecta/projects/[projectId]/CCM.json` exists; if so, update its `scopeName` property in tandem, or trigger `memoryService.renameProjectScope(projectId, newName)`.
+
+#### BUG-019 (Medium): Unconstrained Numerical & String Input Overflow in Settings Modals
+- **Location:** `source/interface/src/commands/settings.tsx`
+- **Symptom:** Typing or pasting an excessively long number (>15 digits) into the Custom Number input modal (for raw log cap, inactivity auto-delete, or role timeout) or typing a very long username (>100 characters) causes floating-point overflow (`Infinity`/`NaN`), distorted timeout arithmetic (`val * 3600`), and horizontal visual wrapping that tears the Ink terminal canvas.
+- **Root Cause:** Input handlers in `settings.tsx` append characters to `customNumber.buffer` and `usernameBuffer` without length constraints, and parse values without bounds checking (e.g. min 1, max 1,000,000).
+- **Fix:** Constrain `customNumber.buffer` to max 8 characters and validate numeric range (e.g., 1 to 1048576 for logs, 1 to 520 for weeks, 5 to 86400 for seconds). Constrain username to max 32 printable characters.
+
+#### BUG-020 (Medium): Child Process Tree Leak on Windows Go Engine Termination
+- **Location:** `source/interface/src/bridge/client.ts`
+- **Symptom:** When exiting Vecta or calling `engineBridge.stop()`, background worker processes or grandchild processes spawned by the Go engine or local inference wrappers continue running in the background, consuming CPU and RAM.
+- **Root Cause:** `engineBridge.stop()` executes `this.process.kill()`. On Windows (`win32`), Node.js `child_process.kill()` sends `SIGTERM`/`TerminateProcess` strictly to the top-level process ID, leaving child subprocesses unkilled as orphaned background zombies.
+- **Fix:** On Windows (`process.platform === "win32"`), execute `taskkill /pid ${this.process.pid} /T /F` to kill the entire process tree recursively before nulling the reference.
+
+#### BUG-021 (Medium): Unintercepted Slash Commands Leaking Directly into LLM Pipeline
+- **Location:** `source/interface/src/app.tsx`
+- **Symptom:** Typing `/clear`, `/lock`, `/usage`, or `/token-weekly` dispatches a full LLM pipeline run with tasks instead of executing the local command or displaying a friendly "feature planned for v0.2.0" notice.
+- **Root Cause:** `handleUserPrompt` lacks routing cases for `/clear`, `/lock`, `/usage`, and `/token-weekly`, falling through directly into `addMessage("User", promptText)` and pipeline assembly.
+- **Fix:** Add command intercepts in `app.tsx`: `/clear` clears the active message buffer; planned slash commands (`/lock`, `/usage`, `/token-weekly`) output an informative system banner.
+
+#### BUG-022 (Minor): Terminal Height Underflow Rendering Flicker on Compact Screens
+- **Location:** `source/interface/src/app.tsx`, `source/interface/src/components/Chat.tsx`
+- **Symptom:** When resizing the terminal window below 14 rows, the chat pane and sidebar overflow the terminal buffer, causing high-frequency layout jitter and cursor jumping.
+- **Root Cause:** `appHeight` clamps to `Math.max(12, terminalSize.rows - 1)`, but combined header, chat lines, status bar, and input area require a minimum of 14-16 vertical rows. When `terminalSize.rows < 14`, the calculated layout exceeds the terminal viewport.
+- **Fix:** Add a compact fallback screen or minimum height guard banner when `terminalSize.rows < 14` (e.g. "Terminal too small (current: N rows, min: 14 rows). Please resize your terminal window.").
+
+#### BUG-023 (Minor): Chat Message ID Float Representation Quirk
+- **Location:** `source/interface/src/hooks/useSession.ts`
+- **Symptom:** Chat messages generated rapidly have IDs like `"1730000000000.4124"`, which can cause non-deterministic sorting or matching edge cases when serialized into JSON.
+- **Root Cause:** `id: String(Date.now() + Math.random())` performs arithmetic addition between a large millisecond timestamp and a decimal fraction.
+- **Fix:** Use standard UUID (`crypto.randomUUID()`) or string concatenation `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`.
+
+#### BUG-024 (Minor): Offline Ollama Disk Detection Failure Due to Extensionless Blobs
+- **Location:** `source/engine/scanner/scanner.go`
+- **Symptom:** If the Ollama runtime is stopped/offline (port 11434 closed), none of the downloaded Ollama models on the machine are recognized in the local model catalog.
+- **Root Cause:** Ollama stores model weights in `.ollama/models/blobs/` as extensionless SHA256 hashes without `.gguf` extensions. The scanner's `knownExts` filter requires `.gguf`, `.safetensors`, or `.bin`, completely skipping all offline Ollama files on disk.
+- **Fix:** In `scanner.go`, parse Ollama manifest files located in `.ollama/models/manifests/` when the Ollama server is offline to detect installed models from disk without requiring the daemon to be running.
+
+
 
 
 

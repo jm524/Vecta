@@ -1,6 +1,19 @@
-import * as fs from "fs/promises";
-import * as path from "path";
+// Status:: done
+// task-relay.tmp state & handoff protocol manager.
+// Strictly implements Claude Docs 07, 08, 11, and Sprint Plan §2G.
+// Manages the active role-to-role communication file and Documenter handshake:
+// 1. Role writes output to task-relay.tmp
+// 2. Documenter immediately copies compact summary to raw.log
+// 3. Documenter confirms copy back to relay.ts (Handshake Token)
+// 4. Manager verifies confirmation before clearing relay and staging next brief.
+
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import { getVectaDir } from "../interface/src/helpers/paths.js";
+import {
+  documenterPassiveCopy,
+  type DocumenterConfirmation,
+} from "../roles/documenter.js";
 
 export type RelayCase =
   | "role_output"
@@ -64,40 +77,58 @@ export type TaskRelay =
   | RoleSkippedRelay
   | FailsafeHandoffRelay;
 
+/** In-memory handshake tracker per chat ensuring Manager cannot clear without Documenter confirmation */
+const activeConfirmations = new Map<string, DocumenterConfirmation>();
+
+/**
+ * Sanitizes chatId to prevent directory traversal (fixes BUG-004).
+ */
+function sanitizeChatId(chatId: string): string {
+  const clean = path.basename(chatId).replace(/[^a-zA-Z0-9_-]/g, "");
+  return clean || "default";
+}
+
 /**
  * Gets the path to the task-relay.tmp file for a given chat.
  */
-function getRelayPath(chatId: string): string {
-  return path.join(getVectaDir(), "chats", chatId, "task-relay.tmp");
+export function getRelayPath(chatId: string, customBaseDir?: string): string {
+  const base = customBaseDir || getVectaDir();
+  return path.join(base, "chats", sanitizeChatId(chatId), "task-relay.tmp");
 }
 
 /**
- * Writes a task-relay.tmp entry to disk.
- * Handles the Documenter passive copy handshake before resolving.
+ * Writes a task-relay.tmp entry to disk and completes the Documenter handshake.
+ * Returns the Documenter confirmation record.
  */
-export async function writeRelay(chatId: string, entry: TaskRelay): Promise<void> {
-  const filePath = getRelayPath(chatId);
+export async function writeRelay(
+  chatId: string,
+  entry: TaskRelay,
+  customBaseDir?: string
+): Promise<DocumenterConfirmation> {
+  const cleanId = sanitizeChatId(chatId);
+  const filePath = getRelayPath(cleanId, customBaseDir);
   await fs.mkdir(path.dirname(filePath), { recursive: true });
 
-  // 1. Write role output entry to task-relay.tmp
+  // 1. Role writes entry to task-relay.tmp
   await fs.writeFile(filePath, JSON.stringify(entry, null, 2), "utf-8");
 
-  // 2. Trigger Documenter handshake (copy to raw.log)
-  // This imports the Documenter's passive function dynamically to avoid circular dependencies,
-  // or Documenter is just imported. 
-  const { documenterPassiveCopy } = await import("../roles/documenter.js");
+  // 2. Trigger Documenter handshake (passive copy to raw.log)
+  const confirmation = await documenterPassiveCopy(cleanId, entry, customBaseDir);
 
-  // 3. Wait for Documenter confirmation
-  await documenterPassiveCopy(chatId, entry);
+  // 3. Record confirmation in relay state
+  activeConfirmations.set(cleanId, confirmation);
 
-  // 4. Signal Manager to read and clear (this happens implicitly since writeRelay resolves)
+  return confirmation;
 }
 
 /**
- * Reads the task-relay.tmp file.
+ * Reads the current task-relay.tmp file.
  */
-export async function readRelay(chatId: string): Promise<TaskRelay | null> {
-  const filePath = getRelayPath(chatId);
+export async function readRelay(
+  chatId: string,
+  customBaseDir?: string
+): Promise<TaskRelay | null> {
+  const filePath = getRelayPath(chatId, customBaseDir);
   try {
     const data = await fs.readFile(filePath, "utf-8");
     return JSON.parse(data) as TaskRelay;
@@ -108,22 +139,51 @@ export async function readRelay(chatId: string): Promise<TaskRelay | null> {
 }
 
 /**
- * Manager clears the task-relay.tmp file after reading.
+ * Checks if Documenter has confirmed the handshake for the active relay entry.
  */
-export async function clearRelay(chatId: string): Promise<void> {
-  const filePath = getRelayPath(chatId);
-  try {
-    await fs.unlink(filePath);
-  } catch (error: any) {
-    if (error.code !== "ENOENT") throw error;
-  }
+export function isRelayConfirmedByDocumenter(chatId: string): boolean {
+  const cleanId = sanitizeChatId(chatId);
+  const confirmation = activeConfirmations.get(cleanId);
+  return !!confirmation && confirmation.status === "confirmed";
 }
 
 /**
- * Manager writes the next role's brief into the cleared relay file.
- * This does NOT trigger the Documenter handshake because it's a brief, not output.
- * Wait, Doc 08: "Role writes output -> Documenter copies -> Documenter confirms -> Manager clears task-relay.tmp -> Manager writes next role's brief".
- * Should Documenter copy the brief too? Doc 11 says "Documenter copies relay entries passively".
- * Let's assume writeRelay handles all writes and triggers passive copy if needed.
- * Doc 08: "Role writes -> Documenter copies to raw.log (compact summary) -> Documenter confirms to relay.ts -> Manager CANNOT clear task-relay.tmp until Documenter confirms"
+ * Gets the last Documenter confirmation for a chat.
  */
+export function getLastConfirmation(chatId: string): DocumenterConfirmation | null {
+  const cleanId = sanitizeChatId(chatId);
+  return activeConfirmations.get(cleanId) || null;
+}
+
+/**
+ * Manager clears task-relay.tmp after reading role output.
+ * STRICT LAW: Manager CANNOT clear task-relay.tmp until Documenter confirms (Doc 08 & 11).
+ * If unconfirmed, throws an error and prevents file erasure.
+ */
+export async function clearRelay(
+  chatId: string,
+  customBaseDir?: string
+): Promise<boolean> {
+  const cleanId = sanitizeChatId(chatId);
+
+  // Enforce handshake confirmation
+  if (!isRelayConfirmedByDocumenter(cleanId)) {
+    throw new Error(
+      `Cannot clear task-relay.tmp for chat "${cleanId}": Documenter handshake not confirmed.`
+    );
+  }
+
+  const filePath = getRelayPath(cleanId, customBaseDir);
+  try {
+    await fs.unlink(filePath);
+    // Reset confirmation state after successful clear
+    activeConfirmations.delete(cleanId);
+    return true;
+  } catch (error: any) {
+    if (error.code === "ENOENT") {
+      activeConfirmations.delete(cleanId);
+      return true;
+    }
+    throw error;
+  }
+}

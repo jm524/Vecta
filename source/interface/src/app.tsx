@@ -14,6 +14,8 @@ import { PromptEditor, PromptRolePicker, countWords } from "./commands/prompt-ed
 import { ChatsView } from "./commands/chats.js";
 import { ProjectsView } from "./commands/projects.js";
 import { QueueView } from "./commands/queue.js";
+import { MemoryView } from "./commands/memory.js";
+import { SettingsView } from "./commands/settings.js";
 import { useSession } from "./hooks/useSession.js";
 import type { QueueDispatchPayload } from "./types/bridge.js";
 
@@ -40,8 +42,10 @@ export const App: React.FC = () => {
   // Chat scroll offset (0 = scrolled all the way to newest messages)
   const [scrollOffset, setScrollOffset] = useState(0);
 
-  // Active modal/screen overlay ("none" | "roles" | "prompt" | "chats" | "projects" | "queue")
-  const [activeOverlay, setActiveOverlay] = useState<"none" | "roles" | "prompt" | "chats" | "projects" | "queue">("none");
+  // Active modal/screen overlay ("none" | "roles" | "prompt" | "chats" | "projects" | "queue" | "memory" | "settings")
+  const [activeOverlay, setActiveOverlay] = useState<
+    "none" | "roles" | "prompt" | "chats" | "projects" | "queue" | "memory" | "settings"
+  >("none");
   const [promptTarget, setPromptTarget] = useState<
     | { type: "picker" }
     | { type: "role"; roleSlug: string; roleName: string; roleColor: string }
@@ -74,10 +78,7 @@ export const App: React.FC = () => {
   useEffect(() => {
     const checkBridge = async () => {
       try {
-        const res = await engineBridge.ping();
-        if (res.success) {
-          addMessage("Manager", `Vecta Engine online (v${res.data?.version || "0.0.4"}). Ready.`, "cyan");
-        }
+        await engineBridge.ping();
       } catch (err: any) {
         addMessage("System", `Engine bridge error: ${err.message}`, "red");
       }
@@ -228,6 +229,13 @@ export const App: React.FC = () => {
       return;
     }
 
+    // New blank standalone chat command (/new or /chat new)
+    if (trimmed === "/new" || trimmed === "/chat new" || trimmed === "/chats new") {
+      session.startBlankChat();
+      setScrollOffset(0);
+      return;
+    }
+
     // Chats screen command (/chats)
     if (trimmed === "/chats") {
       setActiveOverlay("chats");
@@ -243,6 +251,18 @@ export const App: React.FC = () => {
     // Queue screen command (/queue)
     if (trimmed === "/queue") {
       setActiveOverlay("queue");
+      return;
+    }
+
+    // Memory screen command (/memory)
+    if (trimmed === "/memory") {
+      setActiveOverlay("memory");
+      return;
+    }
+
+    // Settings screen command (/settings)
+    if (trimmed === "/settings") {
+      setActiveOverlay("settings");
       return;
     }
 
@@ -290,6 +310,8 @@ export const App: React.FC = () => {
           "  /chats                   - List, create, rename, pin, or switch chats",
           "  /projects                - Project workspaces and scoped chats",
           "  /queue                   - Open real-time task queue inspector",
+          "  /memory                  - View & edit memory scopes, Key Points, and narratives",
+          "  /settings                - Configure theme, timeouts, token caps, and safety limits",
           "  /build                   - Switch to BUILD mode (code generation and execution)",
           "  /plan                    - Switch to PLAN mode (architectural breakdown)",
           "  /server stop             - Stop running background model inference servers (Ollama, LM Studio)",
@@ -425,7 +447,8 @@ export const App: React.FC = () => {
         () => {
           // When all tasks in the pipeline finish
           addMessage("Manager", "All pipeline tasks completed successfully.", rolesHook.getRoleColor("Manager"));
-        }
+        },
+        session.getActiveChatId() || session.activeChatId || "default"
       );
     }
   };
@@ -565,6 +588,32 @@ export const App: React.FC = () => {
           onClearQueue={clearQueue}
           getRoleColor={rolesHook.getRoleColor}
           roles={rolesHook.roles}
+        />
+      </Box>
+    );
+  }
+
+  // If the memory scopes inspector screen is open
+  if (activeOverlay === "memory") {
+    return (
+      <Box width={terminalSize.columns} height={appHeight}>
+        <MemoryView
+          terminalSize={terminalSize}
+          onClose={() => setActiveOverlay("none")}
+        />
+      </Box>
+    );
+  }
+
+  // If the global application settings screen is open
+  if (activeOverlay === "settings") {
+    return (
+      <Box width={terminalSize.columns} height={appHeight}>
+        <SettingsView
+          terminalSize={terminalSize}
+          onClose={() => setActiveOverlay("none")}
+          onNavigateToRoles={() => setActiveOverlay("roles")}
+          onNavigateToMemory={() => setActiveOverlay("memory")}
         />
       </Box>
     );

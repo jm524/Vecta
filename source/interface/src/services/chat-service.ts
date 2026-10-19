@@ -6,6 +6,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { getVectaDir } from "../helpers/paths.js";
 import type { ChatMessage } from "../components/Chat.js";
+import { defaultDuties } from "../../../roles/manager.js";
 
 export interface ChatMetadata {
   id: string;
@@ -184,6 +185,19 @@ export class ChatService {
     // Write meta.json and empty messages.json inside chat folder
     fs.writeFileSync(path.join(chatFolder, "meta.json"), JSON.stringify(newChat, null, 2), "utf8");
     fs.writeFileSync(path.join(chatFolder, "messages.json"), JSON.stringify([], null, 2), "utf8");
+
+    // Initialize manager-duties.json with Layer 1 base duties (Claude Doc 04 & 08)
+    const dutiesPayload = {
+      chatId: id,
+      layer1BaseDuties: defaultDuties,
+      layer2SessionContext: [],
+      updatedAt: now,
+    };
+    fs.writeFileSync(
+      path.join(chatFolder, "manager-duties.json"),
+      JSON.stringify(dutiesPayload, null, 2),
+      "utf8"
+    );
 
     // Add to chats index
     const chats = this.readChatsIndex();

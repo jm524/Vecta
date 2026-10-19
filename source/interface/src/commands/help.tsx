@@ -44,6 +44,8 @@ export const HelpCommand: React.FC<HelpCommandProps> = ({ onClose, terminalSize 
           <Text color="cyan">/chats                   <Text color="gray">- List, create, rename, pin, or switch chats</Text></Text>
           <Text color="cyan">/projects                <Text color="gray">- Project workspaces and scoped chats</Text></Text>
           <Text color="cyan">/queue                   <Text color="gray">- Inspect real-time task execution pipeline</Text></Text>
+          <Text color="cyan">/memory                  <Text color="gray">- View &amp; edit memory scopes, Key Points, and narratives</Text></Text>
+          <Text color="cyan">/settings                <Text color="gray">- Configure theme, timeouts, token caps, and safety</Text></Text>
           <Text color="cyan">/build                   <Text color="gray">- Switch to BUILD mode</Text></Text>
           <Text color="cyan">/plan                    <Text color="gray">- Switch to PLAN mode</Text></Text>
           <Text color="cyan">/server stop             <Text color="gray">- Stop running local AI servers (Ollama, LM Studio)</Text></Text>

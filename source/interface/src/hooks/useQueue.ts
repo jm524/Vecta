@@ -5,6 +5,8 @@ import { useState, useCallback, useRef } from "react";
 import { sessionManager, type SessionTask } from "../../../state/session.js";
 import { engineBridge } from "../bridge/client.js";
 import type { QueueDispatchPayload, QueueDispatchResult } from "../types/bridge.js";
+import { writeRelay, clearRelay } from "../../../state/relay.js";
+import { appendManagerContext } from "../../../state/manager-duties.js";
 
 export interface QueueHookState {
   tasks: SessionTask[];
@@ -14,7 +16,8 @@ export interface QueueHookState {
   dispatchPipeline: (
     payloads: QueueDispatchPayload[],
     onTaskComplete?: (result: QueueDispatchResult) => void,
-    onPipelineComplete?: () => void
+    onPipelineComplete?: () => void,
+    chatId?: string
   ) => Promise<void>;
   clearQueue: () => void;
 }
@@ -41,7 +44,8 @@ export function useQueue(): QueueHookState {
     async (
       payloads: QueueDispatchPayload[],
       onTaskComplete?: (result: QueueDispatchResult) => void,
-      onPipelineComplete?: () => void
+      onPipelineComplete?: () => void,
+      chatId?: string
     ) => {
       if (isRunningRef.current) {
         console.warn("Queue is already executing a pipeline. Please wait for it to finish.");
@@ -90,6 +94,29 @@ export function useQueue(): QueueHookState {
             sessionManager.updateStatus(nextTask.taskId, "done", result.output, result.tokensUsed);
             setTotalTokensUsed((prev) => prev + (result.tokensUsed || 0));
             setTasks(sessionManager.getTasks());
+
+            // Documenter handshake via task-relay.tmp & raw.log (Claude Docs 08 & 11)
+            try {
+              const cid = chatId || "default";
+              await writeRelay(cid, {
+                case: "role_output",
+                role: nextTask.role,
+                task: nextTask.prompt,
+                output: result.output,
+                files_touched: nextTask.filePaths || [],
+                timestamp: new Date().toISOString(),
+              });
+              // Manager verifies Documenter handshake confirmation then clears relay
+              await clearRelay(cid);
+
+              // Record context into manager-duties.json (Claude Docs 04 & 08)
+              await appendManagerContext(
+                cid,
+                `${nextTask.role} completed: "${nextTask.prompt}" touching ${(nextTask.filePaths || []).join(", ")}`
+              );
+            } catch (relayErr) {
+              // Non-blocking log if relay handshake encounters an issue
+            }
 
             if (onTaskComplete) {
               onTaskComplete(result);

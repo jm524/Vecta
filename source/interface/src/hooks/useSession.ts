@@ -1,7 +1,8 @@
 // Status:: complete
 // Hook for session state — active chat context, persistent messaging, and project scoping.
+// Starts on a blank standalone chat on CLI launch. Officially creates a chat on disk when a message is sent.
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useRef, useCallback } from "react";
 import { chatService, type ChatMetadata } from "../services/chat-service.js";
 import type { ChatMessage } from "../components/Chat.js";
 
@@ -13,74 +14,56 @@ export interface UseSessionReturn {
   addMessage: (sender: string, text: string, color?: string) => void;
   selectChat: (chatId: string) => void;
   createAndSelectChat: (title?: string, projectId?: string | null) => ChatMetadata;
+  startBlankChat: () => void;
+  getActiveChatId: () => string | null;
   refreshSession: () => void;
 }
 
 export function useSession(getRoleColor?: (sender: string) => string): UseSessionReturn {
-  const [initialData] = useState(() => {
-    const existing = chatService.listChats();
-    if (existing.length > 0) {
-      const target = existing[0]!;
-      const loaded = chatService.getChat(target.id);
-      return {
-        id: target.id,
-        meta: target,
-        messages: loaded?.messages || [],
-      };
-    }
-    const created = chatService.createChat("New Session");
-    return {
-      id: created.id,
-      meta: created,
-      messages: [],
-    };
-  });
+  // Whenever user enters the CLI, always start on a blank standalone chat
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [activeChat, setActiveChat] = useState<ChatMetadata | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
 
-  const [activeChatId, setActiveChatId] = useState<string | null>(initialData.id);
-  const [activeChat, setActiveChat] = useState<ChatMetadata | null>(initialData.meta);
-  const [messages, setMessages] = useState<ChatMessage[]>(initialData.messages);
-
-  const activeChatIdRef = useRef<string | null>(initialData.id);
+  const activeChatIdRef = useRef<string | null>(null);
   activeChatIdRef.current = activeChatId;
 
-  // Initialize or restore active session on launch
+  // Refresh active session only if an official chat is currently open
   const refreshSession = useCallback(() => {
-    const existing = chatService.listChats();
-    if (existing.length > 0) {
-      const currentId = activeChatIdRef.current;
-      const target = (currentId && existing.find((c) => c.id === currentId)) || existing[0]!;
-      const loaded = chatService.getChat(target.id);
-      setActiveChatId(target.id);
-      setActiveChat(target);
+    const currentId = activeChatIdRef.current;
+    if (currentId) {
+      const loaded = chatService.getChat(currentId);
       if (loaded) {
+        setActiveChat(loaded.meta);
         setMessages(loaded.messages);
       }
-    } else {
-      const created = chatService.createChat("New Session");
-      setActiveChatId(created.id);
-      setActiveChat(created);
-      setMessages([]);
     }
   }, []);
-
-  useEffect(() => {
-    refreshSession();
-  }, [refreshSession]);
 
   // Select and switch to an existing chat
   const selectChat = useCallback((chatId: string) => {
     const loaded = chatService.getChat(chatId);
     if (loaded) {
+      activeChatIdRef.current = chatId;
       setActiveChatId(chatId);
       setActiveChat(loaded.meta);
       setMessages(loaded.messages);
     }
   }, []);
 
+  // Reset to a blank standalone chat
+  const startBlankChat = useCallback(() => {
+    activeChatIdRef.current = null;
+    setActiveChatId(null);
+    setActiveChat(null);
+    setMessages([]);
+  }, []);
+
   // Create and immediately activate a new chat
   const createAndSelectChat = useCallback(
     (title?: string, projectId?: string | null): ChatMetadata => {
       const newChat = chatService.createChat(title, projectId);
+      activeChatIdRef.current = newChat.id;
       setActiveChatId(newChat.id);
       setActiveChat(newChat);
       setMessages([]);
@@ -89,12 +72,20 @@ export function useSession(getRoleColor?: (sender: string) => string): UseSessio
     []
   );
 
-  // Append a message to the active chat and persist to disk
+  // Append a message to the active chat and persist to disk.
+  // If the user is on a blank chat and sends a message, it officially becomes a chat!
   const addMessage = useCallback(
     (sender: string, text: string, color?: string) => {
       const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       const resolvedColor =
-        color || (sender === "User" ? "yellow" : sender === "System" ? "cyan" : getRoleColor ? getRoleColor(sender) : "white");
+        color ||
+        (sender === "User"
+          ? "yellow"
+          : sender === "System"
+          ? "cyan"
+          : getRoleColor
+          ? getRoleColor(sender)
+          : "white");
 
       const newMsg: ChatMessage = {
         id: String(Date.now() + Math.random()),
@@ -104,9 +95,22 @@ export function useSession(getRoleColor?: (sender: string) => string): UseSessio
         timestamp: time,
       };
 
+      let currentId = activeChatIdRef.current;
+
+      // When user sends their first message in a blank chat, officially create the chat on disk
+      if (!currentId && sender === "User") {
+        const titleSnippet = text.trim().replace(/[\r\n\s]+/g, " ");
+        const title =
+          titleSnippet.length > 36 ? titleSnippet.slice(0, 35) + "…" : titleSnippet || undefined;
+        const newChat = chatService.createChat(title, null);
+        currentId = newChat.id;
+        activeChatIdRef.current = newChat.id;
+        setActiveChatId(newChat.id);
+        setActiveChat(newChat);
+      }
+
       setMessages((prev) => {
         const updated = [...prev, newMsg];
-        const currentId = activeChatIdRef.current;
         if (currentId) {
           chatService.saveChatMessages(currentId, updated);
         }
@@ -116,6 +120,10 @@ export function useSession(getRoleColor?: (sender: string) => string): UseSessio
     [getRoleColor]
   );
 
+  const getActiveChatId = useCallback(() => {
+    return activeChatIdRef.current;
+  }, []);
+
   return {
     activeChatId,
     activeChat,
@@ -124,6 +132,8 @@ export function useSession(getRoleColor?: (sender: string) => string): UseSessio
     addMessage,
     selectChat,
     createAndSelectChat,
+    startBlankChat,
+    getActiveChatId,
     refreshSession,
   };
 }

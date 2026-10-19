@@ -196,5 +196,73 @@
   - Wired full-screen overlay routing in `app.tsx`.
   - Updated status bar shortcut hint to `[Ctrl+Q] Queue`.
 
+### v0.0.14 — October 17, 2026
+#### Added
+- **Multi-Tier Memory Engine (`source/state/memory.ts` & `source/interface/src/hooks/useMemory.ts`):**
+  - Fully implemented Sprint Plan §2E three-file memory model: Tier 1 `general.json` (global preferences across all chats), Tier 2 `CCM.json` (per-scope Cross-Chat Memory: General scope + Project scopes), and Tier 3 `summary.json` (per-chat rolling narrative + bullet Key Points).
+  - Enforced word cap limits per Sprint Plan §5 & Claude Docs 12 & 13: strict 700-word cap on cross-chat narratives and 350-word cap on per-chat summaries.
+  - CRUD operations for Tier 1 Global Preferences (read, add, update, remove).
+  - CRUD operations for Tier 2 Scoped CCM (scope discovery, Key Points add/remove, narrative update).
+  - CRUD operations for Tier 3 Chat Summaries.
+  - Reactive hook `useMemory.ts` synchronizing memory states across UI views.
+- **Interactive `/memory` Overlay (`source/interface/src/commands/memory.tsx`):**
+  - Scope list view rendering structured table columns (Scope Name, Key Points, Narrative Words, Last Updated) for Global Preferences, General scope, and all active project workspaces.
+  - Scope detail inspector separating permanent Key Points (`a` add inline, `d`/`dd` double-tap delete) from rolling cross-chat narrative (`e` edit inline with word count threshold alerts).
+  - Global Preferences view for reviewing and modifying global rules.
+  - Clean UI design: borderless styling, conditional scrollbar rail (`█` thumb) appearing only upon viewport overflow, decoupled touchpad / mouse wheel scrolling, tab-scoped feedback messages (3.5s auto-dismiss), and authoritative `Esc` navigation.
+- **Global Configuration Store & `/settings` Screen (`source/state/config.ts` & `source/interface/src/commands/settings.tsx`):**
+  - Centralized `.vecta/config.json` configuration manager with self-healing defaults.
+  - Interactive `/settings` menu with Up/Down selection, Enter/Space toggling and cycling, and inline username buffer editing with character cursor (`█`).
+  - Configurable settings: visual theme (default, cyan, royal, amber, emerald, matrix), raw log size cap (64MB, 128MB, 256MB, 512MB, 1024MB per Sprint Plan §2H), auto-delete interval (1w, 2w, 4w, disabled per Sprint Plan §2I), task timeouts (5m, 10m, 15m, 30m), and token warning caps (x notation vs. raw numbers).
+  - Layer 2 Safety Toggles per Claude Doc 17: require confirmation before file write, roles talk directly, and show role thinking.
+  - Inline navigation shortcuts into `/agent roles` and `/memory`.
+- **UI Shell Polish & Autocomplete Integration (`Chat.tsx`, `app.tsx`, `help.tsx`):**
+  - Registered `/memory` and `/settings` in `BASE_SLASH_COMMANDS` dropdown autocomplete in `Chat.tsx`.
+  - Registered `/memory` and `/settings` in `/help` cheatsheet command index and `help.tsx`.
+  - Wired full-screen overlay routing in `app.tsx`.
+- **Quality Assurance & Verification:**
+  - Automated test script `source/interface/src/test-memory-settings.ts` ran 6 comprehensive lifecycle tests verifying config defaults, mutations, Global Preferences CRUD, Scoped CCM with 700-word cap, Chat Summaries with 350-word cap, and scope listing. All 6 passed cleanly.
+  - TypeScript compilation (`tsc --noEmit`): clean exit 0.
+  - Production bundle build (`esbuild`): bundle generated `dist/main.js` (1.7MB) with 0 errors.
+  - Zero emojis compliance across all interface files.
 
-
+### v0.0.15 — October 18, 2026
+#### Added
+- **`manager-duties.json` Two-Layer State Architecture (`source/state/manager-duties.ts`):**
+  - Isolated per-chat at `.vecta/chats/[chat-id]/manager-duties.json`.
+  - Layer 1 (Permanent Base Duties): Initialized write-once at chat creation with Manager's 9 canonical core duties extracted from `source/roles/manager.ts`. Protected against modification and truncation.
+  - Layer 2 (Rolling Session Context): Stores chronological session observations, decisions, and breadcrumbs. Automatically compacts oldest non-essential items when length exceeds 50 entries.
+  - Failsafe Briefing Engine (`getDutiesForFailsafe`): Combines Layer 1 duties with Layer 2 session context for role handoff if Manager times out or fails (Claude Doc 09).
+  - Hardened with strict `chatId` sanitization against path traversal (BUG-004).
+- **Documenter Handshake & Passive Raw Log Recorder (`source/roles/documenter.ts`):**
+  - Accountant-style passive recording (`documenterPassiveCopy`) appending meeting-minute summaries and files-touched audits to `.vecta/chats/[chat-id]/raw_[scramble].log` using standard logfmt formatting (`ts=... lvl=... role=... task=... msg=...`).
+  - Filename scramble generation matching project and chat naming conventions (`raw_[random].log`) with automatic fallback discovery.
+  - Handshake confirmation signal (`DocumenterConfirmation`) with SHA-256 integrity hash, byte count, timestamp, and audit metadata.
+  - Official turn summary generator (`documenterOfficialTurn`) producing clean markdown turn summary for chat UI and extracting Key Points for memory.
+  - Added `getRawLogSize()` and `getRawLogEntries()` with logfmt parser for monitoring log growth against config limits (256MB).
+- **Interactive `/memory` & `/settings` Polish Pass (`memory.tsx`, `settings.tsx`, `useMemory.ts`):**
+  - **Two-Tab `/memory` Architecture (Claude Docs 12 & 13):** Tab 1 (Default: **Chats**) lists individual chat sessions with permanent Key Points and rolling 350-word `summary.json` Chat Summaries. Tab 2 (**Cross Chat**) houses Global Preferences, General CCM, and Project CCMs (700-word cross-chat narrative). Tabs toggle instantly with `Tab` or `←`/`→`.
+  - **Seamless Navigation & Direct `Enter` Editing:** Removed `Tab` section jumping and `'e'` editing shortcuts. Users navigate seamlessly between Key Points and Narrative with `Up`/`Down` arrows; pressing `Enter` directly edits whatever item the `>` cursor is over. Section headers light up (`cyan` bold) to indicate active focus.
+  - **Enter & Esc Save Workflow:** In all memory text input overlays, plain `Enter` or `Esc` immediately saves and exits, while `Shift+Enter` inserts newlines.
+  - **Collapsing Bullet Points:** Across all Key Points and Global Preferences, items render with bullet points (`• `) when inactive. When selected by the cursor (`> `), the bullet point cleanly collapses; when moving away, it re-emerges with zero column jitter.
+  - **Dynamic Responsive Horizontal Lines:** Borderless input canvas dynamically hugs text lines (`height={Math.max(1, visibleLines.length)}`). When 1 line of text is entered, horizontal lines tightly sandwich that line; as lines expand with `Shift+Enter` (2, 3+ lines), the bottom line dynamically follows, matching `prompt-editor.tsx`.
+  - **Footer Structure Matching `/roles`:** Standardized horizontal line separator (`─`) and shortcut status footer pinned to the bottom of all memory screens.
+  - **Custom Numerical Input (`'c'` key in `/settings`):** Added modal enabling arbitrary numeric inputs with `Tab` unit cycling (`[KB] [MB] [GB]`, `[days] [weeks]`, `[seconds] [minutes] [hours]`) and automatic conversion formatting (e.g. 1024 MB displayed as "1 GB (Ring buffer)").
+  - **Memory Input UX & Terminology Clean-Up:** Borderless input area matching `PromptEditor` with `> ` active line indicator, inverted character cursor, `Shift+Enter` multi-line support, and `Esc` auto-save. Removed all internal "Tier 1", "Tier 2", or "layer" terminology from UI, displaying `# key points` and `# words`.
+  - **Stability & Performance:** Memoized `useMemory` hook return object, resolving infinite re-render flickering and CCM glitching.
+- **Task Relay Handshake Enforcement (`source/state/relay.ts`):**
+  - Handshake token verification (`recordDocumenterConfirmation()` and `isRelayConfirmedByDocumenter()`).
+  - Sprint Plan §2E & Claude Docs 08/11 invariant enforcement: `clearRelay()` throws an error if Manager attempts to clear `task-relay.tmp` before Documenter confirms copy to `raw.log`.
+  - Sanitized file paths across all relay routines using `path.basename`.
+- **Chat Creation & Queue Pipeline Integration (`chat-service.ts`, `useQueue.ts`, `useSession.ts`, `app.tsx`):**
+  - **Blank Chat On Launch:** CLI startup always opens to a clean, blank standalone chat without writing to disk or auto-loading stale chats.
+  - **On-Message Official Chat Creation:** The moment the user sends their first prompt, the chat is officially instantiated on disk (`.vecta/chats/[chat-id]/`), titled from the prompt, and assigned an ID.
+  - **Blank Chat Command (`/new`):** Reset to a blank standalone chat at any time.
+  - Chat initialization automatically writes `manager-duties.json` on disk from the start of every chat.
+  - Task execution pipeline in `useQueue.ts` writes outputs to `task-relay.tmp`, runs Documenter's passive copy to `raw_[scramble].log`, verifies confirmation, clears relay, and appends context breadcrumbs to `manager-duties.json`.
+  - Passed `session.activeChatId` from `app.tsx` into `dispatchPipeline()`.
+- **Quality Assurance & Verification:**
+  - Automated test suite `source/interface/src/test-oct18-documenter-handshake.ts` covering 7 test scenarios (Layer 1 immutability, Layer 2 appending/compaction/failsafe briefing, passive copy to scrambled raw log in logfmt format, complete handshake lifecycle, handshake security violation prevention, official turn generation, and settings formatters). All 7 passed cleanly.
+  - TypeScript compilation (`tsc --noEmit`): clean exit 0.
+  - Production bundle build (`esbuild`): bundle generated `dist/main.js` (1.8MB) with 0 errors.
+  - Strict zero-emoji compliance.

@@ -196,3 +196,24 @@ flowchart TD
    - Displays real-time chat messages and live task checklist.
    - Allows toggling roles `[on]`/`[off]` and syncing `/prompt` additions back to the desktop CLI.
 4. **Disconnection Handling:** If the emulator disconnects or the reverse socket drops, the queue automatically pauses and enters a reconnect grace window.
+
+---
+
+## Flow 10: Blank Chat Lifecycle & On-Message Official Creation
+
+1. **CLI Startup:**
+   - App mounts `useSession` with `activeChatId = null` and empty message buffer `messages = []`.
+   - No chat records are loaded from disk and zero files are written to `.vecta/chats/`.
+   - The user sees a clean standalone blank chat interface (`Vecta ready. Type a prompt below...`).
+2. **First User Message Submission:**
+   - User types a prompt and submits.
+   - `addMessage("User", promptText)` detects `activeChatId === null`.
+   - Triggers `chatService.createChat(title, null)`, deriving the title from the first prompt snippet.
+   - Sets `activeChatId` and `activeChat` synchronously.
+   - Writes `meta.json`, `messages.json`, and `manager-duties.json` to `.vecta/chats/[chat-id]/` and indexes the chat in `.vecta/chats/index.json`.
+3. **Pipeline & Role Execution:**
+   - The sequential task pipeline executes within the newly created chat ID.
+   - Role outputs and Documenter logs persist to the new chat.
+4. **Blank Chat Reset:**
+   - Running `/new` (or `/chat new`) resets the session back to a blank standalone state at any time.
+

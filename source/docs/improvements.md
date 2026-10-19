@@ -138,13 +138,47 @@ tags:
 > 7. **Roster Windowed Scrolling:** Implemented windowed scrolling centered on active role selection with `flexShrink={0}` and indicators for overflow rows.
 > 8. **Anti-Collapse Action Rows & Dedicated Feedback Slot:** Added `flexShrink={0}` to all action lines and converted feedback messages to a fixed 1-line slot across drilldown, switch agent, wizard, and input text screens, completely preventing UI collapse or shift when feedback appears.
 
-> [!todo] 19. Slash Command Autocomplete Cursor Follow, Color Palette Overhaul & Terminal Responsiveness
-> **Location:** Interface (`Chat.tsx`, `agent-roles.tsx`)
-> **Context:** Ergonomic and visual improvements requested during usability testing.
-> **Items Tracked:**
-> 1. **Slash Command Autocomplete Cursor Follow:** When navigating and selecting commands from the `/` autocomplete dropdown, the typing cursor should follow smoothly rather than abruptly jumping.
-> 2. **Role Color Palette Overhaul:** The current 16-color grid picker needs a visual redesign with higher contrast badges, improved terminal color scheme compatibility, and refined styling.
-> 3. **Dynamic Terminal Responsiveness:** Ensure views gracefully adapt to varying terminal viewport heights. Role details and action lists must window/scroll cleanly without squishing rows or hiding bottom shortcut bars.
+> [!done] 20. Two-Tab Memory Architecture, Collapsing Bullets, Responsive Input Lines & Blank Chat Launch
+> **Location:** Memory & Session Subsystems (`memory.tsx`, `settings.tsx`, `useSession.ts`, `app.tsx`)
+> **Context:** Upgraded memory ergonomics per Claude Docs 12 & 13 and unified session initialization.
+> **Improvement Delivered:**
+> 1. **Two-Tab `/memory` Layout:** Dedicated **Chats** tab for per-chat key points and 350-word `summary.json` summaries alongside **Cross Chat** tab for Global Preferences and 700-word scoped CCMs.
+> 2. **Collapsing Bullet Points:** Inactive items display `• `; active selection cleanly collapses into `> ` and re-emerges on navigation with zero text jitter.
+> 3. **Seamless Arrow Flow & Direct Enter Editing:** `Up`/`Down` arrows transition smoothly between Key Points and Narrative sections; `Enter` directly edits without `'e'` shortcut.
+> 4. **Dynamic Responsive Lines & Dual Save:** Input canvases hug text height reactively; `Enter` or `Esc` immediately saves and exits.
+> 5. **Blank Chat on CLI Launch:** Startup always opens to an unsaved blank standalone chat, officially creating the chat on disk only when the user sends a message. Added `/new` command.
+
+> [!todo] 21. Atomic Multi-Process File Locking for `.vecta/` Storage
+> **Location:** `source/interface/src/services/chat-service.ts`, `source/state/memory.ts`, `source/state/config.ts`
+> **Current State:** Direct `fs.writeFileSync` and `fs.readFileSync` calls lack file locking or atomic replacement guards.
+> **Improvement:** Implement atomic write guards (writing to `.tmp` files and replacing atomically via `fs.renameSync`) or lockfile mechanisms across all state writers. This prevents empty file reads and partial write corruption when background tasks (such as Documenter passive copy) execute concurrently with active chat message saves.
+
+> [!todo] 22. Recursive Process-Tree Teardown (`taskkill /T /F` & `SIGKILL` Process Group)
+> **Location:** `source/interface/src/bridge/client.ts`
+> **Current State:** `engineBridge.stop()` invokes standard `child_process.kill()`, which leaves orphaned background child and grandchild worker processes running on Windows.
+> **Improvement:** Wrap subprocess termination in an OS-aware lifecycle manager: execute `taskkill /pid <PID> /T /F` on Windows (`win32`) and send `SIGKILL` to the process group (`process.kill(-pid, 'SIGKILL')`) on Unix to cleanly terminate the entire process hierarchy.
+
+> [!todo] 23. Offline Ollama Model Detection via Manifest Ingestion
+> **Location:** `source/engine/scanner/scanner.go`
+> **Current State:** When the Ollama daemon is offline (port 11434 closed), Vecta cannot detect any Ollama models on the hard drive because weights are stored as extensionless SHA256 hashes in `blobs/`.
+> **Improvement:** Add an offline manifest parser in `scanner.go` that inspects `~/.ollama/models/manifests/`. Each manifest JSON contains model metadata (parent tag, parameter size, quantization) and maps to its blob digest. This provides 100% offline detection of local Ollama models even when the server daemon is not running.
+
+> [!todo] 24. Graceful Terminal Viewport Degradation & Min-Height Guard Banner
+> **Location:** `source/interface/src/app.tsx`, `source/interface/src/components/Chat.tsx`
+> **Current State:** Running Vecta in terminal panes with fewer than 14 rows causes nested headers, status bar, and input areas to overflow, producing terminal scroll jitter.
+> **Improvement:** Implement an active terminal dimension guard in `app.tsx`. If `terminalSize.rows < 14` or `terminalSize.columns < 50`, render a dedicated minimal fallback notice: `Terminal window too compact (current: X×Y, min: 50×14). Please expand your terminal.` to protect layout stability.
+
+> [!todo] 25. Centralized Slash Command Dispatch Registry
+> **Location:** `source/interface/src/app.tsx`, `source/interface/src/components/Chat.tsx`
+> **Current State:** Slash commands are defined in two separate places: `BASE_SLASH_COMMANDS` in `Chat.tsx` and an `if (trimmed === ...)` cascade in `app.tsx`. Planned commands (`/clear`, `/lock`, `/usage`, `/token-weekly`) fall through to the LLM pipeline.
+> **Improvement:** Consolidate all slash commands into a single typed command registry (`CommandRegistry`) mapping command names, aliases, description, autocomplete hints, and execution handlers. Intercept `/clear` to reset the active chat screen and provide helpful status notices for planned modules.
+
+> [!todo] 26. Bidirectional Scope Synchronization Between Project Workspaces and Memory
+> **Location:** `source/interface/src/services/chat-service.ts`, `source/state/memory.ts`
+> **Current State:** Renaming or deleting projects mutates `projects/index.json` and `meta.json`, but does not update `CCM.json` `scopeName`, causing `/memory` to show stale project names.
+> **Improvement:** Implement an event hook (`projectService.onRename`, `projectService.onDelete`) that updates `scopeName` in `.vecta/projects/[id]/CCM.json`, cleans up dangling references, and resets `session.startBlankChat()` if the currently active chat was deleted.
+
+
 
 
 
