@@ -2,7 +2,15 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import * as readline from "node:readline";
 import * as path from "node:path";
 import * as fs from "node:fs";
-import type { BridgeRequest, BridgeResponse, HardwareScanResult } from "../types/bridge.js";
+import type {
+  BridgeRequest,
+  BridgeResponse,
+  HardwareScanResult,
+  CryptoInitResult,
+  CryptoEncryptResult,
+  CryptoDecryptResult,
+  CryptoSecretResult,
+} from "../types/bridge.js";
 
 // This class manages the running Go engine subprocess.
 // It sends JSON messages into Go's stdin and waits for answers on Go's stdout.
@@ -109,11 +117,56 @@ export class EngineBridge {
     return this.send<HardwareScanResult>("hw_scan", { customPaths });
   }
 
+  // Initializes the primary encryption key in the OS native vault (Windows DPAPI / Keychain / Secret Service).
+  public async cryptoInit(): Promise<BridgeResponse<CryptoInitResult>> {
+    return this.send<CryptoInitResult>("crypto_init");
+  }
+
+  // Encrypts plaintext using AES-256-GCM via the Go crypto engine.
+  // Returns 'ENC:v1:<base64>' ciphertext.
+  public async cryptoEncrypt(plaintext: string): Promise<BridgeResponse<CryptoEncryptResult>> {
+    return this.send<CryptoEncryptResult>("crypto_encrypt", { plaintext });
+  }
+
+  // Decrypts 'ENC:v1:<base64>' ciphertext using AES-256-GCM via the Go crypto engine.
+  public async cryptoDecrypt(ciphertext: string): Promise<BridgeResponse<CryptoDecryptResult>> {
+    return this.send<CryptoDecryptResult>("crypto_decrypt", { ciphertext });
+  }
+
+  // Stores an arbitrary named secret into the OS native vault (e.g. role API keys).
+  public async cryptoStoreSecret(key: string, value: string): Promise<BridgeResponse<CryptoSecretResult>> {
+    return this.send<CryptoSecretResult>("crypto_store_secret", { key, value });
+  }
+
+  // Retrieves an arbitrary named secret from the OS native vault.
+  public async cryptoGetSecret(key: string): Promise<BridgeResponse<CryptoSecretResult>> {
+    return this.send<CryptoSecretResult>("crypto_get_secret", { key });
+  }
+
+  // Checks if a named secret exists in the OS native vault.
+  public async cryptoHasSecret(key: string): Promise<BridgeResponse<CryptoSecretResult>> {
+    return this.send<CryptoSecretResult>("crypto_has_secret", { key });
+  }
+
+  // Deletes a named secret from the OS native vault.
+  public async cryptoDeleteSecret(key: string): Promise<BridgeResponse<CryptoSecretResult>> {
+    return this.send<CryptoSecretResult>("crypto_delete_secret", { key });
+  }
+
   // Closes the Go engine process when the user exits the app.
   public stop(): void {
     if (this.process) {
       this.process.stdin.end();
-      this.process.kill();
+      const pid = this.process.pid;
+      if (process.platform === "win32" && pid) {
+        try {
+          spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
+        } catch {
+          this.process.kill();
+        }
+      } else {
+        this.process.kill();
+      }
       this.process = null;
     }
   }

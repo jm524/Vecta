@@ -26,6 +26,18 @@ export function truncateWords(text: string, maxWords: number): string {
   return words.slice(0, maxWords).join(" ");
 }
 
+/**
+ * Truncates text by pruning oldest words from the beginning of the string,
+ * preserving the most recent maxWords.
+ * Used for rolling 350-word summary.json compaction per Claude Doc 14.
+ */
+export function truncateOldestWords(text: string, maxWords: number): string {
+  if (!text || !text.trim()) return "";
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) return text.trim();
+  return words.slice(words.length - maxWords).join(" ");
+}
+
 /** Tier 1: Global Preferences schema (.vecta/memory/general.json) */
 export interface GlobalPreferencesData {
   preferences: string[];
@@ -250,8 +262,8 @@ export function saveScopeCCM(scope: ScopeCCM, customDir?: string): ScopeCCM {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  // Enforce 700-word cap on cross-chat narrative
-  const cleanNarrative = truncateWords(scope.narrative, 700);
+  // Enforce rolling 700-word cap on cross-chat narrative
+  const cleanNarrative = truncateOldestWords(scope.narrative, 700);
 
   const payload: ScopeCCM = {
     scopeId: scope.scopeId,
@@ -383,8 +395,8 @@ export function saveChatSummary(summary: ChatSummary, customDir?: string): ChatS
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  // Enforce 350-word cap on rolling narrative (Sprint Plan §2E & §5)
-  const cleanNarrative = truncateWords(summary.narrative, 350);
+  // Enforce rolling 350-word cap: oldest words deleted from the beginning (Claude Doc 14)
+  const cleanNarrative = truncateOldestWords(summary.narrative, 350);
 
   const payload: ChatSummary = {
     chatId: summary.chatId,

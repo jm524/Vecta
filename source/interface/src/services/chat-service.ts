@@ -13,6 +13,7 @@ export interface ChatMetadata {
   title: string;
   createdAt: string;
   updatedAt: string;
+  lastActiveAt?: string; // Tracks active usage (messages & Documenter logs) for inactivity auto-delete
   pinned: boolean;
   projectId?: string | null;
   messageCount: number;
@@ -171,6 +172,7 @@ export class ChatService {
       title: cleanTitle,
       createdAt: now,
       updatedAt: now,
+      lastActiveAt: now,
       pinned: false,
       projectId: projectId || null,
       messageCount: 0,
@@ -234,8 +236,43 @@ export class ChatService {
     if (meta) {
       meta.messageCount = messages.length;
       meta.updatedAt = now;
+      meta.lastActiveAt = now;
       fs.writeFileSync(path.join(chatFolder, "meta.json"), JSON.stringify(meta, null, 2), "utf8");
       this.writeChatsIndex(chats);
+    }
+  }
+
+  // Resets the inactivity timer when a chat is actively used (message sent or Documenter logging)
+  public touchChatActivity(chatId: string): void {
+    const chats = this.readChatsIndex();
+    const meta = chats.find((c) => c.id === chatId);
+    const now = new Date().toISOString();
+    const chatFolder = path.join(this.chatsDir, chatId);
+
+    if (meta) {
+      meta.lastActiveAt = now;
+      meta.updatedAt = now;
+      if (fs.existsSync(chatFolder)) {
+        try {
+          fs.writeFileSync(path.join(chatFolder, "meta.json"), JSON.stringify(meta, null, 2), "utf8");
+        } catch {
+          // ignore
+        }
+      }
+      this.writeChatsIndex(chats);
+    } else if (fs.existsSync(chatFolder)) {
+      const metaFile = path.join(chatFolder, "meta.json");
+      if (fs.existsSync(metaFile)) {
+        try {
+          const raw = fs.readFileSync(metaFile, "utf8");
+          const parsed = JSON.parse(raw);
+          parsed.lastActiveAt = now;
+          parsed.updatedAt = now;
+          fs.writeFileSync(metaFile, JSON.stringify(parsed, null, 2), "utf8");
+        } catch {
+          // ignore
+        }
+      }
     }
   }
 

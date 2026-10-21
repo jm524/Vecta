@@ -178,6 +178,16 @@ tags:
 > **Current State:** Renaming or deleting projects mutates `projects/index.json` and `meta.json`, but does not update `CCM.json` `scopeName`, causing `/memory` to show stale project names.
 > **Improvement:** Implement an event hook (`projectService.onRename`, `projectService.onDelete`) that updates `scopeName` in `.vecta/projects/[id]/CCM.json`, cleans up dangling references, and resets `session.startBlankChat()` if the currently active chat was deleted.
 
+> [!important] 27. On-Demand Audit Log Decryption and Re-Encryption Commands (`/decrypt` & `/encrypt`)
+> **Location:** `source/interface/src/commands/` & `source/roles/documenter.ts`
+> **Context:** Claude Doc 14 ("User Viewing the Raw Log") and Sprint Plan §2B ("The Decrypt Flow").
+> **Current State:** Documenter passively encrypts every interaction to `raw_[scramble].log` on disk using AES-256-GCM. There is no instant CLI slash command for the user to temporarily inspect or re-secure their full raw audit minutes for the active chat.
+> **Improvement:**
+> 1. **`/decrypt` Command:** Decrypts the active chat's `raw_[scramble].log` in memory using the OS vault master key. Per Claude Doc 14, to prevent freezing terminal emulators with large logs (up to 256MB), Vecta writes the decrypted plaintext to a secure OS temp file (e.g., `%TEMP%/vecta/raw-[chatId]-decrypted.log`) and provides the exact clickable file path so the user can open it in any text editor.
+> 2. **Persistent Standing Reminder:** Per Claude Doc 14, Manager marks the log as unencrypted and presents a reminder banner at natural task checkpoints: `[Manager] Reminder: raw log still decrypted. Type /encrypt when finished viewing.`
+> 3. **`/encrypt` Command:** User runs `/encrypt` to immediately wipe and securely delete the temporary plaintext file from disk, returning the chat's audit trail to a sealed at-rest state.
+
+
 
 
 

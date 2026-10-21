@@ -1,6 +1,6 @@
 // Status:: in-progress
 // Simple test script to verify the TypeScript <-> Go bridge round-trip.
-import { engineBridge } from "./bridge/client.js";
+import { engineBridge } from "../bridge/client.js";
 
 async function runTest(): Promise<void> {
   console.log("[Test] 1. Starting Go engine background process...");

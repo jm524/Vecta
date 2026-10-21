@@ -217,3 +217,105 @@ flowchart TD
 4. **Blank Chat Reset:**
    - Running `/new` (or `/chat new`) resets the session back to a blank standalone state at any time.
 
+---
+
+## Flow 11: OS Native Vault & Write-Time Encryption Flow (Claude Docs 14, 15, 26)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Doc as Documenter (documenter.ts)
+    participant Bridge as Bridge Client (client.ts)
+    participant Engine as Go Crypto Engine (crypto.go)
+    participant Vault as OS Native Vault (Credential Manager / DPAPI)
+    participant Disk as Disk Storage (raw.log)
+
+    Doc->>Doc: Format logfmt meeting minutes in memory
+    Doc->>Bridge: Send cryptoEncrypt(plaintext)
+    Bridge->>Engine: IPC {"action": "crypto_encrypt", "payload": {"plaintext": "..."}}
+    Engine->>Vault: Retrieve "vecta-encryption-key"
+    Vault-->>Engine: Return 32-byte master key
+    Engine->>Engine: Generate random 12-byte nonce (crypto/rand)
+    Engine->>Engine: Encrypt with AES-256-GCM
+    Engine->>Engine: Immediately Memzero(key) in RAM
+    Engine-->>Bridge: Return {"ciphertext": "ENC:v1:<base64>"}
+    Bridge-->>Doc: Return encrypted ciphertext line
+    Doc->>Disk: Append "ENC:v1:..." to raw_[scramble].log (Plaintext NEVER touches disk)
+```
+
+1. **First-Run Key Initialization:**
+   - Vecta checks whether `vecta-encryption-key` exists in the OS native vault.
+   - If missing, a 256-bit (32-byte) key is generated purely in RAM using `crypto/rand`.
+   - The key is saved to Windows Credential Manager (`advapi32.dll` via `CredWriteW` as `CRED_PERSIST_LOCAL_MACHINE`) with DPAPI fallback (`crypt32.dll` `CryptProtectData`).
+   - The in-memory key buffer is immediately overwritten with zeros (`Memzero`).
+   - `.vecta/config.json` sets `"encryptionKeySet": true` (never storing the raw key on disk).
+2. **Write-Time Encryption (Claude Doc 14 & 15):**
+   - Documenter formats meeting-minutes records into single-line logfmt format (`documenterPassiveCopy`).
+   - Plaintext is passed to Go's AES-256-GCM encryption engine over the stdio bridge.
+   - The master key is retrieved on-demand from the OS vault, data is encrypted with a unique 12-byte random nonce, and the key is zeroed immediately from RAM.
+   - Only the scrambled `ENC:v1:<base64>` ciphertext is written to disk.
+3. **Read-Time Decryption (Claude Doc 15):**
+   - When reading raw logs (`getRawLogEntries`) for compaction, display, or turn generation, `crypto.Decrypt()` unpacks `ENC:v1:...` lines in memory.
+   - The decrypted text exists strictly in RAM and is never written to disk in plain form. Legacy unencrypted entries are handled transparently for backward compatibility.
+4. **Cloud API Key Protection:**
+   - User-assigned cloud API keys (Anthropic, OpenAI, Gemini) are stored directly into the OS vault under `vecta-api-key-[role-slug]`.
+   - Roles configuration files (`config.json` and `custom-roles.json`) only retain the boolean marker `"apiKeySet": true`, ensuring credentials are never exposed in plaintext configuration files.
+
+---
+
+## Flow 12: Log Compaction, Ring-Buffer Eviction & Inactivity Pruning Flow (Claude Doc 14, Sprint Plan §2H, §2I)
+
+```mermaid
+flowchart TD
+    subgraph Trigger["1. Execution Triggers"]
+        TC["Task Chunk Finished (useQueue / officialTurn)"]
+        PW["Passive Copy Write (documenterPassiveCopy)"]
+        CL["CLI Startup (app.tsx checkBridge)"]
+    end
+
+    subgraph Compaction["2. Rolling Compaction to summary.json"]
+        TC --> DCS["documenterCompactToSummary(chatId)"]
+        DCS --> RAW["Read decrypted recent entries from raw.log"]
+        RAW --> COND["Condense into accountant-style task summary"]
+        COND --> ROLL["Enforce 350-word cap: truncateOldestWords()"]
+        ROLL --> SUMM[("summary.json (Plain text, rolling narrative, permanent Key Points)")]
+        SUMM --> TOUCH1["chatService.touchChatActivity(chatId)"]
+    end
+
+    subgraph RingBuffer["3. Ring-Buffer Size Cap Eviction"]
+        PW --> RBE["enforceRawLogRingBuffer(chatId)"]
+        TC --> RBE
+        RBE --> CAP{"raw.log size > rawLogCapMB (default 256MB)?"}
+        CAP -- "No" --> NOP["Do nothing; preserve log"]
+        CAP -- "Yes" --> PRUNE["Drop oldest encrypted lines from top of file (prunes 25% to preserve 75% of log)"]
+        PRUNE --> WR["Write back remaining lines (newest entries preserved)"]
+    end
+
+    subgraph AutoDelete["4. Inactivity Auto-Delete Runner"]
+        CL --> PAR["pruneInactiveRawLogs()"]
+        PAR --> CHK{"autoDeleteWeeks > 0 (default 2 weeks)?"}
+        CHK -- "No (0 = disabled)" --> DIS["Keep raw logs indefinitely"]
+        CHK -- "Yes" --> TIME{"lastActiveAt < cutoff?"}
+        TIME -- "No (Active)" --> KEEP["Keep raw.log"]
+        TIME -- "Yes (Inactive)" --> DEL["Delete raw_[scramble].log ONLY"]
+        DEL --> SURV["Preserve summary.json, Key Points, CCM.json, and meta.json"]
+    end
+```
+
+1. **Task-Chunk Rolling Compaction (Claude Doc 14 & Sprint Plan §2E, §2H):**
+   - Documenter condenses raw log entries into `summary.json` at task-chunk completion (not on a timer).
+   - Rolling 350-word cap: when narrative additions exceed 350 words, oldest task summaries are pruned from the beginning of `summary.json` (`truncateOldestWords`), preserving the newest tasks at the end.
+   - Key Points (Tier 2/3 permanent points) are strictly protected and never compacted or deleted.
+   - `summary.json` is stored as plain text JSON for fast display in `/memory` and Manager briefing.
+2. **Ring-Buffer Eviction for `raw.log` (Sprint Plan §2H):**
+   - Enforces `rawLogCapMB` from `/settings` (default 256MB, configurable up to 1024MB).
+   - When raw log exceeds capacity, oldest encrypted lines at the top of the file are dropped to bring the file down to 75% of cap (pruning only 25% of the oldest entries, preserving 75% of the log history).
+   - Runs automatically on every write via `documenterPassiveCopy()` and after pipeline completion.
+3. **Inactivity Auto-Delete Runner (Claude Doc 14 & Sprint Plan §2I):**
+   - Automatically prunes `raw_[scramble].log` for chats exceeding `autoDeleteWeeks` of inactivity (default 2 weeks).
+   - When `autoDeleteWeeks` is 0, auto-delete is disabled and raw logs are kept indefinitely.
+   - Inactivity timer resets ONLY when a user sends a message / executes a task or Documenter logs/compacts. Opening or switching chats does NOT reset the timer.
+   - Safe deletion: Only `raw_[scramble].log` is pruned; `summary.json`, `meta.json`, `messages.json`, and Key Points are permanently preserved.
+
+
+

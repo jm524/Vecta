@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-import { ChatService } from "./services/chat-service.js";
+import { ChatService } from "../services/chat-service.js";
 
 function runTest() {
   console.log("Starting Blank Chat on Launch & Official Creation Test Suite...\n");

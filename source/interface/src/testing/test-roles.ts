@@ -5,12 +5,12 @@
 import {
   managerRole,
   coderRole,
-} from "../../roles/index.js";
+} from "../../../roles/index.js";
 import {
   assembleTaskPrompt,
   type TaskBrief,
   LAYER_1_SYSTEM_PROMPT_RULES,
-} from "../../roles/base.js";
+} from "../../../roles/base.js";
 
 function runTests() {
   console.log("=== Running Vecta Role System Tests ===\n");

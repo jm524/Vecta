@@ -11,7 +11,7 @@ import {
   appendManagerContext,
   clearSessionDuties,
   getDutiesForFailsafe,
-} from "../../state/manager-duties.js";
+} from "../../../state/manager-duties.js";
 
 import {
   writeRelay,
@@ -19,7 +19,7 @@ import {
   clearRelay,
   isRelayConfirmedByDocumenter,
   getLastConfirmation,
-} from "../../state/relay.js";
+} from "../../../state/relay.js";
 
 import {
   documenterPassiveCopy,
@@ -28,13 +28,13 @@ import {
   documenterOfficialTurn,
   parseLogfmt,
   getRawLogPath,
-} from "../../roles/documenter.js";
+} from "../../../roles/documenter.js";
 
 import {
   formatRawLogCapDisplay,
   formatAutoDeleteDisplay,
   formatTimeoutDisplay,
-} from "./commands/settings.js";
+} from "../commands/settings.js";
 
 async function runTests() {
   console.log("Starting Oct 18 Documenter Handshake & Duties Test Suite...\n");
@@ -202,6 +202,9 @@ async function runTests() {
     assert.strictEqual(formatAutoDeleteDisplay(2), "2 weeks inactivity");
     assert.strictEqual(formatAutoDeleteDisplay(1 / 7), "1 day inactivity");
     assert.strictEqual(formatAutoDeleteDisplay(3 / 7), "3 days inactivity");
+    assert.strictEqual(formatAutoDeleteDisplay(52 / 12), "1 month inactivity");
+    assert.strictEqual(formatAutoDeleteDisplay((2 * 52) / 12), "2 months inactivity");
+    assert.strictEqual(formatAutoDeleteDisplay(52), "1 year inactivity");
 
     assert.strictEqual(formatTimeoutDisplay(30), "30 seconds");
     assert.strictEqual(formatTimeoutDisplay(300), "5 minutes");

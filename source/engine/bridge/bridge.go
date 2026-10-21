@@ -51,3 +51,44 @@ type QueueDispatchResult struct {
 	TokensUsed  int    `json:"tokensUsed"`
 	CompletedAt string `json:"completedAt"`
 }
+
+// CryptoEncryptPayload carries plaintext to encrypt.
+type CryptoEncryptPayload struct {
+	Plaintext string `json:"plaintext"`
+}
+
+// CryptoEncryptResult carries the resulting 'ENC:v1:<base64>' ciphertext.
+type CryptoEncryptResult struct {
+	Ciphertext string `json:"ciphertext"`
+}
+
+// CryptoDecryptPayload carries ciphertext to decrypt.
+type CryptoDecryptPayload struct {
+	Ciphertext string `json:"ciphertext"`
+}
+
+// CryptoDecryptResult carries the decrypted plaintext.
+type CryptoDecryptResult struct {
+	Plaintext string `json:"plaintext"`
+}
+
+// CryptoSecretPayload carries a secret key and optional value for OS vault storage.
+type CryptoSecretPayload struct {
+	Key   string `json:"key"`
+	Value string `json:"value,omitempty"`
+}
+
+// CryptoSecretResult returns the outcome of an OS vault secret query.
+type CryptoSecretResult struct {
+	Key     string `json:"key"`
+	Value   string `json:"value,omitempty"`
+	Exists  bool   `json:"exists,omitempty"`
+	Success bool   `json:"success"`
+}
+
+// CryptoInitResult reports whether the primary vault encryption key is ready.
+type CryptoInitResult struct {
+	KeySet    bool   `json:"keySet"`
+	VaultType string `json:"vaultType"`
+}
+

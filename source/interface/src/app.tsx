@@ -18,6 +18,7 @@ import { MemoryView } from "./commands/memory.js";
 import { SettingsView } from "./commands/settings.js";
 import { useSession } from "./hooks/useSession.js";
 import type { QueueDispatchPayload } from "./types/bridge.js";
+import { pruneInactiveRawLogs } from "../../roles/documenter.js";
 
 export const App: React.FC = () => {
   const { exit } = useApp();
@@ -79,6 +80,9 @@ export const App: React.FC = () => {
     const checkBridge = async () => {
       try {
         await engineBridge.ping();
+        await engineBridge.cryptoInit();
+        // Inactivity auto-delete runner (Claude Doc 14 & Sprint Plan §2I)
+        pruneInactiveRawLogs().catch(() => {});
       } catch (err: any) {
         addMessage("System", `Engine bridge error: ${err.message}`, "red");
       }

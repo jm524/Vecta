@@ -266,3 +266,74 @@
   - TypeScript compilation (`tsc --noEmit`): clean exit 0.
   - Production bundle build (`esbuild`): bundle generated `dist/main.js` (1.8MB) with 0 errors.
   - Strict zero-emoji compliance.
+
+### v0.0.16 — October 19, 2026
+#### Added
+- **OS Native Vault Integration (`source/engine/crypto/vault.go`, `vault_windows.go`, `vault_unix.go`):**
+  - Implemented Windows Credential Manager (`advapi32.dll`) integration using `CredWriteW`, `CredReadW`, `CredDeleteW`, and `CredFree` storing generic credentials (`CRED_PERSIST_LOCAL_MACHINE`) tied strictly to the user's OS login session per Claude Doc 15 §2.
+  - Implemented Windows DPAPI (`crypt32.dll`) fallback via `CryptProtectData` and `CryptUnprotectData` with `CRYPTPROTECT_UI_FORBIDDEN`.
+  - Implemented Unix/macOS vault (`vault_unix.go`) with owner-only (`0700` / `0600`) storage and user/machine-bound AES-256 wrapping.
+  - Standardized vault target names: `vecta-encryption-key` for master encryption key and `vecta-api-key-[role]` for cloud role credentials.
+- **AES-256-GCM Encryption Engine & Memory Zeroing (`source/engine/crypto/crypto.go`):**
+  - Cryptographically secure 256-bit (32-byte) key generation purely in RAM using `crypto/rand`.
+  - First-run key initialization (`EnsureEncryptionKey`) storing key in OS vault and immediately zeroing the RAM buffer.
+  - Authenticated encryption with unique 12-byte random nonce per write, producing formatted `ENC:v1:<base64>` ciphertext.
+  - Decryption verifying 16-byte GCM authentication tag with transparent fallback for unencrypted legacy content.
+  - Immediate memory zeroing (`Memzero`) of all keys and plain secrets after use to prevent RAM inspection.
+- **Go Engine Bridge Protocol Actions (`source/engine/main.go`, `bridge/bridge.go`, `interface/src/bridge/client.ts`):**
+  - Added typed IPC actions: `crypto_init`, `crypto_encrypt`, `crypto_decrypt`, `crypto_store_secret`, `crypto_get_secret`, `crypto_has_secret`, `crypto_delete_secret`.
+  - Hardened Windows engine termination in `client.ts` using `taskkill /pid <PID> /T /F` to prevent orphaned child process leaks (BUG-020).
+- **Documenter Write-Time Raw Log Encryption (`source/roles/documenter.ts`):**
+  - Encrypted write path: `documenterPassiveCopy` encrypts every meeting-minutes logfmt entry in memory before appending to `raw_[scramble].log`. Plain text is never written to disk at any point (Claude Doc 14 & 15).
+  - Decrypted read path: `getRawLogEntries` reads and decrypts `ENC:v1:...` lines in memory while gracefully handling unencrypted legacy lines.
+- **Role Cloud API Key Vault Storage (`useRoles.ts`, `services/crypto-service.ts`):**
+  - Role model assignments automatically store cloud API keys directly into the OS vault (`vecta-api-key-[role-slug]`).
+  - Disk storage in `.vecta/config.json` and `custom-roles.json` only tracks `apiKeySet: true` boolean flags, never storing credentials on disk.
+- **Quality Assurance & Verification:**
+  - Created automated test suite `source/interface/src/test-oct19-crypto.ts` covering 5 lifecycle scenarios: OS vault key generation, AES-256-GCM bridge encryption/decryption round-trip, role API key vault CRUD, Documenter raw log write-time disk encryption verification, and memory zeroing. All 5 passed cleanly.
+  - Built Go engine binary `vecta-engine.exe` cleanly with zero warnings.
+  - TypeScript compilation (`tsc --noEmit`): clean exit 0.
+  - Production bundle build (`esbuild`): generated `dist/main.js` (1.8MB) with 0 errors.
+  - Strict zero-emoji compliance.
+
+### v0.0.17 — October 20, 2026
+#### Added
+- **Rolling Compaction to `summary.json` (`source/roles/documenter.ts`, `source/state/memory.ts`):**
+  - Implemented `documenterCompactToSummary(chatId, customBaseDir, customSummaryText)` per Claude Doc 14.
+  - Compaction runs at logical task chunk completion (not on a timer).
+  - Rolling 350-word cap: when narrative additions exceed 350 words, oldest task summaries are pruned from the beginning of `summary.json` via `truncateOldestWords()`, preserving newest tasks at the end.
+  - Permanent Key Points (Tier 2/3) are strictly protected and never compacted or deleted.
+  - `summary.json` is stored as clean plain text JSON for direct reading by `/memory` and Manager role briefs.
+- **Ring-Buffer Eviction for `raw.log` (`source/roles/documenter.ts`):**
+  - Implemented `enforceRawLogRingBuffer(chatId, customBaseDir, overrideCapMB)` per Sprint Plan §2H and Claude Doc 14.
+  - Enforces `rawLogCapMB` from `/settings` (default 256MB, user-configurable up to 1024MB).
+  - When log size exceeds cap, oldest encrypted lines at the top of the file are dropped to bring the file down to 75% of cap (pruning only 25% of the oldest entries, preserving 75% of log history).
+  - Runs automatically on every write via `documenterPassiveCopy()` and after pipeline completion.
+- **Inactivity Auto-Delete Runner (`source/roles/documenter.ts`):**
+  - Implemented `pruneInactiveRawLogs(customBaseDir, overrideWeeks)` per Claude Doc 14 and Sprint Plan §2I.
+  - Automatically deletes `raw_[scramble].log` for chats exceeding `autoDeleteWeeks` of inactivity (default 2 weeks).
+  - Setting `autoDeleteWeeks: 0` in `/settings` disables auto-delete and retains logs indefinitely per Claude Doc 14.
+  - Safe deletion guarantee: only the detailed raw log is removed. `summary.json` (350-word narrative), Key Points, `meta.json`, and `messages.json` are permanently preserved.
+  - Fresh restart guarantee: when returning to a pruned chat, Documenter reads `summary.json` and starts a fresh scrambled raw log without data loss.
+- **Inactivity Timer Reset Law (`source/interface/src/services/chat-service.ts`, `source/roles/documenter.ts`):**
+  - Opening, switching into, or inspecting a chat does NOT reset the auto-delete timer.
+  - The inactivity timer (`lastActiveAt`) resets ONLY when:
+    1. The user sends a message / executes a task in that chat (`saveChatMessages`).
+    2. Documenter logs work or compacts memory for that chat (`touchChatActivity`).
+- **Inactivity Settings & Units (`source/interface/src/commands/settings.tsx`):**
+  - Expanded `/settings` custom amount modal (`c` key) to support cycling across `["days", "weeks", "months", "year"]`.
+  - Added conversion logic: days (`val / 7`), weeks (`val`), months (`val * 52 / 12`), and locked `1 year` (52 weeks).
+  - Enhanced `formatAutoDeleteDisplay()` to show clean human-readable unit labels.
+- **Queue Pipeline & Startup Integration (`source/interface/src/hooks/useQueue.ts`, `source/interface/src/app.tsx`):**
+  - In `useQueue.ts`, pipeline completion automatically triggers `documenterCompactToSummary()` and `enforceRawLogRingBuffer()`.
+  - In `app.tsx`, `checkBridge()` automatically triggers `pruneInactiveRawLogs()` on CLI launch.
+- **Quality Assurance & Verification:**
+  - Created automated test suite `source/interface/src/testing/test-oct20-compaction-pruning.ts` covering 5 test scenarios (rolling 350-word cap compaction, ring-buffer cap eviction, inactivity auto-delete runner with summary preservation and disable toggle, inactivity timer reset rules on message/Documenter only, and Documenter official turn auto-compaction). All 5 passed (5/5).
+  - Reorganized all 11 test suites into `source/interface/src/testing/` with direct NPM scripts in `package.json`.
+  - Added workspace root `tsconfig.json` and `source/tsconfig.json` to resolve TypeScript editor imports and type declarations cleanly across all IDEs.
+  - Hardened `.gitignore` to protect vault key inspection scripts (`view-vault-keys.ts`).
+  - Verified full test suite across codebase: `test-roles.ts`, `test-memory-settings.ts`, `test-oct18-documenter-handshake.ts`, `test-oct19-crypto.ts`, `test-session-blank-chat.ts`, and Go `crypto_test.go` all pass cleanly.
+  - TypeScript compilation (`tsc --noEmit`): clean exit 0 across root and interface configs.
+  - Production bundle build (`esbuild`): bundle generated `dist/main.js` (1.8MB) with 0 errors.
+  - Strict zero-emoji compliance across code, logs, and docs.
+

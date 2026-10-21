@@ -144,13 +144,38 @@ export interface HardwareScanPayload {
   customPaths?: string[];
 }
 
+export interface CryptoInitResult {
+  keySet: boolean;
+  vaultType: string;
+}
+
+export interface CryptoEncryptResult {
+  ciphertext: string;
+}
+
+export interface CryptoDecryptResult {
+  plaintext: string;
+}
+
+export interface CryptoSecretResult {
+  key: string;
+  value?: string;
+  exists?: boolean;
+  success: boolean;
+}
+
 /** Command requests sent from TypeScript to Go over stdin */
 export type BridgeRequest =
   | { id: string; action: "ping"; payload?: Record<string, never> }
   | { id: string; action: "hw_scan"; payload?: HardwareScanPayload }
   | { id: string; action: "queue_dispatch"; payload: QueueDispatchPayload }
-  | { id: string; action: "crypto_encrypt"; payload: { plaintext: string; keyId?: string } }
-  | { id: string; action: "crypto_decrypt"; payload: { ciphertext: string; keyId?: string } }
+  | { id: string; action: "crypto_init"; payload?: Record<string, never> }
+  | { id: string; action: "crypto_encrypt"; payload: { plaintext: string } }
+  | { id: string; action: "crypto_decrypt"; payload: { ciphertext: string } }
+  | { id: string; action: "crypto_store_secret"; payload: { key: string; value: string } }
+  | { id: string; action: "crypto_get_secret"; payload: { key: string } }
+  | { id: string; action: "crypto_has_secret"; payload: { key: string } }
+  | { id: string; action: "crypto_delete_secret"; payload: { key: string } }
   | { id: string; action: "device_status"; payload?: Record<string, never> };
 
 /** Response messages sent from Go to TypeScript over stdout */

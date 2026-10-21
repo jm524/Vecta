@@ -3,8 +3,8 @@
 // Boots the engine and asks it to scan CPU, GPU, RAM, storage, power, and local AI servers.
 // Run with: npx tsx src/test-scanner.ts
 
-import { engineBridge } from "./bridge/client.js";
-import type { HardwareScanResult } from "./types/bridge.js";
+import { engineBridge } from "../bridge/client.js";
+import type { HardwareScanResult } from "../types/bridge.js";
 
 // runTest starts the engine, requests the hardware scan, and prints the findings.
 async function runTest(): Promise<void> {

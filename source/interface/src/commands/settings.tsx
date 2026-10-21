@@ -42,7 +42,7 @@ interface SettingItem {
 
 const THEME_OPTIONS = ["default", "cyan", "royal", "amber", "emerald", "matrix"];
 const RAW_LOG_CAP_OPTIONS = [64, 128, 256, 512, 1024]; // MB (1024 MB converts to 1 GB)
-const AUTO_DELETE_OPTIONS = [1, 2, 4, 0]; // Weeks (0 = Never)
+const AUTO_DELETE_OPTIONS = [1, 2, 4, 52 / 12, 52, 0]; // 1w, 2w, 4w, 1 month, 1 year, Disabled
 const ROLE_TIMEOUT_OPTIONS = [300, 600, 900, 1800]; // Seconds (5m, 10m, 15m, 30m)
 
 /**
@@ -59,17 +59,35 @@ export function formatRawLogCapDisplay(capMB: number): string {
 }
 
 /**
- * Formats inactivity auto-delete interval with day/week conversion.
+ * Formats inactivity auto-delete interval with day/week/month/year conversion.
  */
 export function formatAutoDeleteDisplay(weeks: number): string {
-  if (weeks === 0) return "Disabled (Never auto-delete)";
-  if (weeks >= 1 && Number.isInteger(weeks)) {
-    return `${weeks} ${weeks === 1 ? "week" : "weeks"} inactivity`;
+  if (weeks <= 0) return "Disabled (Never auto-delete)";
+
+  // Check 1 year (52 weeks)
+  if (Math.abs(weeks - 52) < 0.5) {
+    return "1 year inactivity";
   }
+
+  // Check months (1 month = ~4.333 weeks = 52/12 weeks)
+  const monthsExact = (weeks * 12) / 52;
+  const roundedMonths = Math.round(monthsExact);
+  if (roundedMonths >= 1 && Math.abs(monthsExact - roundedMonths) < 0.08) {
+    return `${roundedMonths} ${roundedMonths === 1 ? "month" : "months"} inactivity`;
+  }
+
+  // Check integer weeks
+  if (weeks >= 1 && Math.abs(weeks - Math.round(weeks)) < 0.01) {
+    const w = Math.round(weeks);
+    return `${w} ${w === 1 ? "week" : "weeks"} inactivity`;
+  }
+
+  // Days
   const days = Math.round(weeks * 7);
   if (days >= 1) {
     return `${days} ${days === 1 ? "day" : "days"} inactivity`;
   }
+
   return `${weeks} weeks inactivity`;
 }
 
@@ -259,7 +277,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         setCustomNumber((prev) => {
           if (!prev) return null;
           const nextIdx = (prev.unitIndex + 1) % prev.units.length;
-          return { ...prev, unitIndex: nextIdx };
+          const nextUnit = prev.units[nextIdx];
+          let nextBuffer = prev.buffer;
+          if (prev.targetId === "autoDelete" && nextUnit === "year") {
+            nextBuffer = "1";
+          }
+          return {
+            ...prev,
+            unitIndex: nextIdx,
+            buffer: nextBuffer,
+            cursorPos: nextBuffer.length,
+          };
         });
         return;
       }
@@ -280,6 +308,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           } else if (customNumber.targetId === "autoDelete") {
             let weeks = val;
             if (selectedUnit === "days") weeks = val / 7;
+            else if (selectedUnit === "months") weeks = (val * 52) / 12;
+            else if (selectedUnit === "year") weeks = 52;
             updateConfig(
               { autoDeleteWeeks: weeks },
               `Auto-delete set to ${formatAutoDeleteDisplay(weeks)}.`
@@ -336,6 +366,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       if (input && /[0-9.]/.test(input)) {
         setCustomNumber((prev) => {
           if (!prev) return null;
+          // Year is strictly fixed to "1 year"
+          if (prev.targetId === "autoDelete" && prev.units[prev.unitIndex] === "year") {
+            return prev;
+          }
           if (input === "." && prev.buffer.includes(".")) return prev;
           const nextBuf =
             prev.buffer.slice(0, prev.cursorPos) + input + prev.buffer.slice(prev.cursorPos);
@@ -441,18 +475,34 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         return;
       }
       if (active.id === "autoDelete") {
-        const isDays = config.autoDeleteWeeks > 0 && config.autoDeleteWeeks < 1;
-        const initialNum = isDays
-          ? String(Math.round(config.autoDeleteWeeks * 7))
-          : String(config.autoDeleteWeeks);
-        const initialUnit = isDays ? 0 : 1; // 0=days, 1=weeks
+        let initialUnit = 1; // 0=days, 1=weeks, 2=months, 3=year
+        let initialNum = String(config.autoDeleteWeeks);
+
+        if (Math.abs(config.autoDeleteWeeks - 52) < 0.5) {
+          initialUnit = 3;
+          initialNum = "1";
+        } else {
+          const monthsExact = (config.autoDeleteWeeks * 12) / 52;
+          const roundedMonths = Math.round(monthsExact);
+          if (roundedMonths >= 1 && Math.abs(monthsExact - roundedMonths) < 0.08) {
+            initialUnit = 2;
+            initialNum = String(roundedMonths);
+          } else if (config.autoDeleteWeeks > 0 && config.autoDeleteWeeks < 1) {
+            initialUnit = 0;
+            initialNum = String(Math.round(config.autoDeleteWeeks * 7));
+          } else {
+            initialUnit = 1;
+            initialNum = String(config.autoDeleteWeeks);
+          }
+        }
+
         setCustomNumber({
           targetId: "autoDelete",
           title: "Custom Inactivity Auto-Delete",
           buffer: initialNum,
           cursorPos: initialNum.length,
           unitIndex: initialUnit,
-          units: ["days", "weeks"],
+          units: ["days", "weeks", "months", "year"],
         });
         return;
       }

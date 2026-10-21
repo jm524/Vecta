@@ -1,0 +1,37 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "typeRoots": [
+      "./source/interface/node_modules/@types"
+    ],
+    "types": ["node"],
+    "declaration": true,
+    "sourceMap": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@roles/*": ["source/roles/*"],
+      "@state/*": ["source/state/*"],
+      "@interface/*": ["source/interface/src/*"]
+    }
+  },
+  "include": [
+    "source/interface/src/**/*",
+    "source/roles/**/*",
+    "source/state/**/*"
+  ],
+  "exclude": [
+    "source/interface/node_modules",
+    "source/interface/dist"
+  ]
+}

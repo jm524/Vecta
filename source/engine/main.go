@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/vecta-cli/engine/bridge"
+	"github.com/vecta-cli/engine/crypto"
 	"github.com/vecta-cli/engine/queue"
 	"github.com/vecta-cli/engine/scanner"
 )
@@ -112,6 +113,145 @@ func handleRequest(req bridge.Request) {
 			Data:    scanResult,
 		}
 		sendJSON(resp)
+
+	case "crypto_init":
+		// Ensure primary encryption key exists in OS vault (Windows DPAPI / Keychain / Secret Service)
+		_, err := crypto.EnsureEncryptionKey()
+		if err != nil {
+			sendError(req.ID, fmt.Sprintf("crypto init failed: %v", err))
+			return
+		}
+		resp := bridge.Response{
+			ID:      req.ID,
+			Success: true,
+			Data: bridge.CryptoInitResult{
+				KeySet:    true,
+				VaultType: crypto.GetVaultType(),
+			},
+		}
+		sendJSON(resp)
+
+	case "crypto_encrypt":
+		var payload bridge.CryptoEncryptPayload
+		if err := json.Unmarshal(req.Payload, &payload); err != nil {
+			sendError(req.ID, fmt.Sprintf("failed to parse encrypt payload: %v", err))
+			return
+		}
+		ciphertext, err := crypto.Encrypt([]byte(payload.Plaintext))
+		if err != nil {
+			sendError(req.ID, fmt.Sprintf("encryption failed: %v", err))
+			return
+		}
+		resp := bridge.Response{
+			ID:      req.ID,
+			Success: true,
+			Data: bridge.CryptoEncryptResult{
+				Ciphertext: ciphertext,
+			},
+		}
+		sendJSON(resp)
+
+	case "crypto_decrypt":
+		var payload bridge.CryptoDecryptPayload
+		if err := json.Unmarshal(req.Payload, &payload); err != nil {
+			sendError(req.ID, fmt.Sprintf("failed to parse decrypt payload: %v", err))
+			return
+		}
+		plainBytes, err := crypto.Decrypt(payload.Ciphertext)
+		if err != nil {
+			sendError(req.ID, fmt.Sprintf("decryption failed: %v", err))
+			return
+		}
+		resp := bridge.Response{
+			ID:      req.ID,
+			Success: true,
+			Data: bridge.CryptoDecryptResult{
+				Plaintext: string(plainBytes),
+			},
+		}
+		sendJSON(resp)
+
+	case "crypto_store_secret":
+		var payload bridge.CryptoSecretPayload
+		if err := json.Unmarshal(req.Payload, &payload); err != nil {
+			sendError(req.ID, fmt.Sprintf("failed to parse secret payload: %v", err))
+			return
+		}
+		if err := crypto.StoreSecret(payload.Key, []byte(payload.Value)); err != nil {
+			sendError(req.ID, fmt.Sprintf("failed to store secret in vault: %v", err))
+			return
+		}
+		resp := bridge.Response{
+			ID:      req.ID,
+			Success: true,
+			Data: bridge.CryptoSecretResult{
+				Key:     payload.Key,
+				Success: true,
+			},
+		}
+		sendJSON(resp)
+
+	case "crypto_get_secret":
+		var payload bridge.CryptoSecretPayload
+		if err := json.Unmarshal(req.Payload, &payload); err != nil {
+			sendError(req.ID, fmt.Sprintf("failed to parse secret payload: %v", err))
+			return
+		}
+		secretBytes, err := crypto.GetSecret(payload.Key)
+		if err != nil {
+			sendError(req.ID, fmt.Sprintf("failed to get secret from vault: %v", err))
+			return
+		}
+		defer crypto.Memzero(secretBytes)
+		resp := bridge.Response{
+			ID:      req.ID,
+			Success: true,
+			Data: bridge.CryptoSecretResult{
+				Key:     payload.Key,
+				Value:   string(secretBytes),
+				Success: true,
+			},
+		}
+		sendJSON(resp)
+
+	case "crypto_has_secret":
+		var payload bridge.CryptoSecretPayload
+		if err := json.Unmarshal(req.Payload, &payload); err != nil {
+			sendError(req.ID, fmt.Sprintf("failed to parse secret payload: %v", err))
+			return
+		}
+		exists := crypto.HasSecret(payload.Key)
+		resp := bridge.Response{
+			ID:      req.ID,
+			Success: true,
+			Data: bridge.CryptoSecretResult{
+				Key:     payload.Key,
+				Exists:  exists,
+				Success: true,
+			},
+		}
+		sendJSON(resp)
+
+	case "crypto_delete_secret":
+		var payload bridge.CryptoSecretPayload
+		if err := json.Unmarshal(req.Payload, &payload); err != nil {
+			sendError(req.ID, fmt.Sprintf("failed to parse secret payload: %v", err))
+			return
+		}
+		if err := crypto.DeleteSecret(payload.Key); err != nil {
+			sendError(req.ID, fmt.Sprintf("failed to delete secret from vault: %v", err))
+			return
+		}
+		resp := bridge.Response{
+			ID:      req.ID,
+			Success: true,
+			Data: bridge.CryptoSecretResult{
+				Key:     payload.Key,
+				Success: true,
+			},
+		}
+		sendJSON(resp)
+
 
 	default:
 		// Tell TypeScript we do not know this action yet.

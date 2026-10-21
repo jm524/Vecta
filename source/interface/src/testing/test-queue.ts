@@ -1,7 +1,7 @@
 // Status:: in-progress
 // Automated test script to verify FIFO sequential queue execution.
-import { engineBridge } from "./bridge/client.js";
-import type { QueueDispatchPayload, QueueDispatchResult } from "./types/bridge.js";
+import { engineBridge } from "../bridge/client.js";
+import type { QueueDispatchPayload, QueueDispatchResult } from "../types/bridge.js";
 
 async function runQueueTest(): Promise<void> {
   console.log("[Queue Test] 1. Starting Go engine...");

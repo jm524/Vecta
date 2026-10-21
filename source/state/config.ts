@@ -33,6 +33,7 @@ export interface VectaConfig {
   autoDeleteWeeks: number; // default 2 weeks (Sprint Plan §2I)
   tokenCaps: VectaTokenCaps;
   layer2: VectaLayer2Limits;
+  encryptionKeySet?: boolean;
   roles?: Record<string, any>;
   customRoles?: any[];
 }
@@ -107,6 +108,7 @@ export function readConfig(customDir?: string): VectaConfig {
         showRoleThinking:
           parsed.layer2?.showRoleThinking ?? DEFAULT_CONFIG.layer2.showRoleThinking,
       },
+      encryptionKeySet: parsed.encryptionKeySet ?? true,
       roles: parsed.roles ?? {},
       customRoles: parsed.customRoles ?? [],
     };

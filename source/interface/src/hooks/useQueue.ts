@@ -7,6 +7,7 @@ import { engineBridge } from "../bridge/client.js";
 import type { QueueDispatchPayload, QueueDispatchResult } from "../types/bridge.js";
 import { writeRelay, clearRelay } from "../../../state/relay.js";
 import { appendManagerContext } from "../../../state/manager-duties.js";
+import { documenterCompactToSummary, enforceRawLogRingBuffer } from "../../../roles/documenter.js";
 
 export interface QueueHookState {
   tasks: SessionTask[];
@@ -137,6 +138,15 @@ export function useQueue(): QueueHookState {
       setActiveTask(null);
       setIsProcessing(false);
       isRunningRef.current = false;
+
+      // Logical task chunk complete — compact raw entries into summary.json (Claude Doc 14)
+      try {
+        const cid = chatId || "default";
+        await documenterCompactToSummary(cid);
+        await enforceRawLogRingBuffer(cid);
+      } catch {
+        // Non-blocking
+      }
 
       if (onPipelineComplete) {
         onPipelineComplete();

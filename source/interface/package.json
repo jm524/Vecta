@@ -6,7 +6,14 @@
   "scripts": {
     "dev": "tsx src/main.ts",
     "build": "esbuild src/main.ts --bundle --platform=node --format=esm --external:react-devtools-core --outfile=dist/main.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx src/testing/test-oct20-compaction-pruning.ts",
+    "test:oct20": "tsx src/testing/test-oct20-compaction-pruning.ts",
+    "test:oct19": "tsx src/testing/test-oct19-crypto.ts",
+    "test:oct18": "tsx src/testing/test-oct18-documenter-handshake.ts",
+    "test:memory": "tsx src/testing/test-memory-settings.ts",
+    "test:roles": "tsx src/testing/test-roles.ts",
+    "test:blank": "tsx src/testing/test-session-blank-chat.ts",
   },
   "dependencies": {
     "ink": "^5.2.0",

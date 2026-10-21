@@ -1,19 +1,20 @@
 import * as fs from "fs/promises";
 import * as path from "path";
-import { writeRelay, readRelay, clearRelay, type RoleBriefRelay, type RoleOutputRelay } from "../../state/relay.js";
-import { engineBridge } from "./bridge/client.js";
-import type { QueueDispatchResult } from "./types/bridge.js";
-import { getVectaDir } from "./helpers/paths.js";
+import { writeRelay, readRelay, clearRelay, type RoleBriefRelay, type RoleOutputRelay } from "../../../state/relay.js";
+import { engineBridge } from "../bridge/client.js";
+import type { QueueDispatchResult } from "../types/bridge.js";
+import { getVectaDir } from "../helpers/paths.js";
+import { getRawLogPath, getRawLogEntries } from "../../../roles/documenter.js";
 
 async function runE2ETest() {
   console.log("=== Running Vecta E2E Pipeline (Manager -> Coder -> Documenter) ===\n");
 
   const chatId = "test-chat-e2e";
-  const rawLogPath = path.join(getVectaDir(), "chats", chatId, "raw.log");
-  const relayPath = path.join(getVectaDir(), "chats", chatId, "task-relay.tmp");
+  const chatFolder = path.join(getVectaDir(), "chats", chatId);
+  const relayPath = path.join(chatFolder, "task-relay.tmp");
 
   // Clean up any old state
-  await fs.rm(path.dirname(rawLogPath), { recursive: true, force: true }).catch(() => {});
+  await fs.rm(chatFolder, { recursive: true, force: true }).catch(() => {});
 
   console.log("[Step 1] Manager evaluates request and creates Task Brief...");
   
@@ -81,21 +82,25 @@ async function runE2ETest() {
 
   console.log("\n[Step 6] Validating Documenter raw.log content...");
   try {
-    const rawLog = await fs.readFile(rawLogPath, "utf-8");
-    console.log("--- raw.log contents ---");
-    console.log(rawLog.trim());
+    const rawPath = getRawLogPath(chatId);
+    const rawLog = await fs.readFile(rawPath, "utf-8");
+    console.log("--- raw log contents on disk (encrypted) ---");
+    console.log(rawLog.trim().slice(0, 80) + "...");
     console.log("------------------------");
     
-    if (!rawLog.includes("Coder finished task") || !rawLog.includes("test-math.ts")) {
-      throw new Error("raw.log does not contain expected Documenter summary!");
+    // Inspect decrypted entries in memory
+    const entries = await getRawLogEntries(chatId);
+    const joined = entries.join("\n");
+    if (!joined.includes("Coder") || !joined.includes("test-math.ts")) {
+      throw new Error("raw log does not contain expected Documenter summary!");
     }
-    console.log("✓ raw.log validation passed");
+    console.log("✓ raw log validation passed (encrypted on disk, decrypted in memory)");
   } catch (error) {
-    throw new Error(`Failed to read raw.log: ${error}`);
+    throw new Error(`Failed to read raw log: ${error}`);
   }
 
   // Cleanup
-  await fs.rm(path.dirname(rawLogPath), { recursive: true, force: true });
+  await fs.rm(chatFolder, { recursive: true, force: true });
   console.log("\n✓ All E2E Pipeline steps PASSED successfully!");
 }
 

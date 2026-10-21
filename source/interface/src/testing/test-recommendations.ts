@@ -7,9 +7,9 @@
 // Shows the download command and online source URL for every recommendation.
 // Contains zero emojis and uses clean CLI text badges.
 
-import { engineBridge } from "./bridge/client.js";
-import type { HardwareScanResult } from "./types/bridge.js";
-import { generateRecommendations } from "./services/recommendation.js";
+import { engineBridge } from "../bridge/client.js";
+import type { HardwareScanResult } from "../types/bridge.js";
+import { generateRecommendations } from "../services/recommendation.js";
 
 // runTest boots the engine, performs a live scan, and prints recommendations.
 async function runTest(): Promise<void> {

@@ -9,7 +9,7 @@ import {
   readConfig,
   writeConfig,
   DEFAULT_CONFIG,
-} from "../../state/config.js";
+} from "../../../state/config.js";
 
 import {
   getGlobalPreferences,
@@ -31,8 +31,8 @@ import {
   saveChatSummary,
   countWords,
   truncateWords,
-} from "../../state/memory.js";
-import { ChatService } from "./services/chat-service.js";
+} from "../../../state/memory.js";
+import { ChatService } from "../services/chat-service.js";
 
 function runTests() {
   console.log("Starting Oct 17 Memory & Settings Test Suite...\n");

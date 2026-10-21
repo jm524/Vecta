@@ -21,6 +21,7 @@ import {
   type RecommendationReport,
   type FitRating,
 } from "../services/recommendation.js";
+import { storeVaultSecret } from "../services/crypto-service.js";
 import type {
   HardwareInfo,
   CatalogItem,
@@ -487,6 +488,11 @@ export function useRoles(): UseRolesReturn {
         apiKey?: string;
       }
     ) => {
+      // Store API key safely in the OS native vault (Claude Doc 15 §2)
+      if (assignment.apiKey) {
+        storeVaultSecret(`vecta-api-key-${slug}`, assignment.apiKey);
+      }
+
       persistRoleUpdate(slug, (prev) => {
         return {
           ...prev,
