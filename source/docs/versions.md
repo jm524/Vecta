@@ -26,12 +26,12 @@
 | **Oct 18** | **`v0.0.15`** | **Day 15: Documenter & Raw Log** — Full Documenter copy handshake, `raw.log` logging, `manager-duties.json`. |
 | **Oct 19** | **`v0.0.16`** | **Day 16: OS Vault Encryption** — Windows DPAPI key generation, AES-GCM encrypt-on-write and decryption flow. |
 | **Oct 20** | **`v0.0.17`** | **Day 17: Log Compaction & Memory** — Ring-buffer pruning, 2-week inactivity cleanup, 350-word `summary.json`. |
-| **Oct 21** | **`v0.0.18`** | **Day 18: Core Resilience** — Cross-Chat Memory (`CCM.json`), token sidebar counters, hash loop detector (3x). |
-| **Oct 22** | **`v0.0.19`** | **Day 19: Device Server** — Localhost Go server (`127.0.0.1`) + `adb reverse` reverse tunnel setup. |
+| **Oct 21** | **`v0.0.18`** | **Day 18: Core Resilience** — Cross-Chat Memory (`CCM.json`), token sidebar live sync, hash loop detector (3x). |
+| **Oct 22** | **`v0.0.19`** | **Day 19: Real Inference & Device Server** — Real model inference engine (Ollama/cloud) + Llama 3.1 8B fallback (only if downloaded) + cross-platform `vecta` command + Go device server (`127.0.0.1`). |
 | **Oct 23** | **`v0.0.20`** | **Day 20: Android Client** — Android emulator client: remote chat view and live task status sidebar. |
 | **Oct 24** | **`v0.0.21`** | **Day 21: Remote Control Sync** — Role toggle & `/prompt` sync back to host machine, session persistence. |
-| **Oct 25** | **`v0.0.22`** | **Day 22: Failsafe & Demo Polish** — Disconnect auto-pause & reconnect grace window, full demo rehearsal. |
-| **Oct 26** | **`v0.1.0`** | **DEADLINE RELEASE** — Package native binaries + device emulator client for Congressional App Challenge. |
+| **Oct 25** | **`v0.0.22`** | **Day 22: Packaging & Demo Polish** — Production packaging v0.1.0, user README guide, disconnect auto-pause & reconnect grace window, demo rehearsal. |
+| **Oct 26** | **`v0.1.0`** | **Day 23: DEADLINE SUBMISSION** — Final Congressional App Challenge submission (demo video upload, project entry form, GitHub release tag v0.1.0). |
 
 ---
 

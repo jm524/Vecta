@@ -37,12 +37,13 @@ Per `Building/Checklist.md`, these architectural definitions are prerequisites f
 | **15** | Sun Oct 18 | `v0.0.15` | **Documenter & Raw Log** | Documenter full handshake + encrypted `raw.log` + `manager-duties.json` state. |
 | **16** | Mon Oct 19 | `v0.0.16` | **OS Vault Encryption** | `crypto.go`: key gen, Windows DPAPI integration, AES-GCM encrypt-on-write / decrypt flow. |
 | **17** | Tue Oct 20 | `v0.0.17` | **Log Compaction & Pruning** | Ring-buffer eviction, 2-week auto-delete, compaction $\rightarrow$ 350-word `summary.json`. |
-| **18** | Wed Oct 21 | `v0.0.18` | **Resilience & Memory Tiers** | Memory tiers wired (`general.json`, `summary.json`, `CCM.json`) + token sidebar + hash loop detector (3x). |
-| **19** | Thu Oct 22 | `v0.0.19` | **Device Server** | Go device server (`127.0.0.1`) + `adb reverse` tunnel setup + `vecta device` command. |
+| **18** | Wed Oct 21 | `v0.0.18` | **Resilience & Memory Tiers** | Memory tiers wired (`general.json`, `summary.json`, `CCM.json`) + token sidebar live sync + hash loop detector (3x). |
+| **19** | Thu Oct 22 | `v0.0.19` | **Real Inference & Device Server** | Real model inference engine (Ollama/cloud) + Llama 3.1 8B fallback (only if downloaded) + cross-platform `vecta` CLI command (Windows/macOS/Linux) + Go device server (`127.0.0.1`) & `adb reverse`. |
 | **20** | Fri Oct 23 | `v0.0.20` | **Android Client** | Android emulator client: remote chat view and live task status checklist. |
-| **21** | Sat Oct 24 | `v0.0.21` | **Remote Control Sync** | Role toggle & `/prompt` sync back to host machine + session persistence. |
-| **22** | Sun Oct 25 | `v0.0.22` | **Failsafe & Demo Polish** | Emulator disconnect auto-pause & reconnect grace window; full demo rehearsal. |
-| **23** | Mon Oct 26 | `v0.1.0` | **DEADLINE RELEASE** | Package v0.1.0 + Vecta Device for GitHub and Congressional App Challenge submission. |
+| **21** | Sat Oct 24 | `v0.0.21` | **Remote Control Sync** | Role toggle & `/prompt` sync back to host machine + session persistence., fixing all debugging.md bugs and doing all improvements.md |
+
+| **22** | Sun Oct 25 | `v0.0.22` | **Packaging & Demo Polish** | Production packaging v0.1.0 + comprehensive user usage README.md + emulator disconnect auto-pause & reconnect grace window; full demo rehearsal. |
+| **23** | Mon Oct 26 | `v0.1.0` | **DEADLINE SUBMISSION** | Congressional App Challenge final submission (demo video upload, project entry form, GitHub release tag v0.1.0). |
 
 ---
 
