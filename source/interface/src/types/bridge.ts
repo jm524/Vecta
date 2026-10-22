@@ -8,8 +8,15 @@ export interface QueueDispatchPayload {
   role: string;
   stage: number;
   prompt: string;
+  fullPrompt?: string;
   filePaths: string[];
   fileBoundaries: string[];
+  simulatedOutput?: string;
+}
+
+/** Result returned when the queue runner hash loop detector history is cleared */
+export interface QueueResetResult {
+  success: boolean;
 }
 
 /** Result returned from Go when a task execution completes */
@@ -169,6 +176,7 @@ export type BridgeRequest =
   | { id: string; action: "ping"; payload?: Record<string, never> }
   | { id: string; action: "hw_scan"; payload?: HardwareScanPayload }
   | { id: string; action: "queue_dispatch"; payload: QueueDispatchPayload }
+  | { id: string; action: "queue_reset"; payload?: Record<string, never> }
   | { id: string; action: "crypto_init"; payload?: Record<string, never> }
   | { id: string; action: "crypto_encrypt"; payload: { plaintext: string } }
   | { id: string; action: "crypto_decrypt"; payload: { ciphertext: string } }

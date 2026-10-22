@@ -25,6 +25,50 @@ interface InspectorRow {
   valueNode: React.ReactNode;
 }
 
+/**
+ * Strips internal Layer 1 security limit rules, role identities, and hidden system prompts
+ * from task instructions so the Queue view only displays the clean user instruction or duty.
+ */
+export function cleanTaskPrompt(text: string): string {
+  if (!text) return "";
+  let cleaned = text;
+
+  // 1. If it contains a [CURRENT TASK BRIEF] block, extract Specific Duty or User Goal
+  if (cleaned.includes("[CURRENT TASK BRIEF]")) {
+    const briefSection = cleaned.split("[CURRENT TASK BRIEF]")[1] || "";
+    const dutyMatch = briefSection.match(/Specific Duty:\s*([^\n]+)/);
+    if (dutyMatch && dutyMatch[1]) {
+      return dutyMatch[1].trim();
+    }
+    const goalMatch = briefSection.match(/User Goal:\s*([^\n]+)/);
+    if (goalMatch && goalMatch[1]) {
+      return goalMatch[1].trim();
+    }
+  }
+
+  // 2. Strip Layer 1 security rules headers and all 10 numbered safety rules
+  cleaned = cleaned.replace(/\[VECTA LAYER 1 CORE SECURITY RULES[^]*?(?:10\.\s*INTERNAL FILES HIDDEN[^\n]*\n*)/gi, "");
+  cleaned = cleaned.replace(/\[VECTA LAYER 1 CORE SECURITY RULES[^]*?\]/gi, "");
+
+  // 3. Strip hidden role default system prompts (e.g. "You are the Coder for Vecta...", "You are the Documenter for Vecta...", etc.)
+  cleaned = cleaned.replace(/You are the [A-Za-z ]+ for Vecta\.[^]*?(?=\n\n|\n\[|$)/gi, "");
+
+  // 4. Strip any Role Identity headers
+  cleaned = cleaned.replace(/\[ROLE IDENTITY:[^]*?\]/gi, "");
+
+  // 5. Strip any User Prompt headers
+  cleaned = cleaned.replace(/\[USER PROMPT[^\]]*\]\n*/gi, "");
+
+  // 6. Strip any memory tier blocks
+  cleaned = cleaned.replace(/\[TIER \d[^\]]*\][^]*?(?=\n\[|$)/gi, "");
+  cleaned = cleaned.replace(/\[RELEVANT PROJECT MEMORY\][^]*?(?=\n\[|$)/gi, "");
+
+  // 7. Strip any remaining numbered rule lines (e.g. "1. INSTRUCTIONS ONLY...")
+  cleaned = cleaned.replace(/^\d+\.\s+[A-Z ]+:[^\n]*\n?/gm, "");
+
+  return cleaned.trim() || text;
+}
+
 export const QueueView: React.FC<QueueViewProps> = ({
   tasks,
   activeTask,
@@ -265,7 +309,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
       label: "Prompt",
       valueNode: (
         <Text color="white" wrap="wrap">
-          {selectedTask.prompt}
+          {cleanTaskPrompt(selectedTask.prompt)}
         </Text>
       ),
     });
@@ -546,7 +590,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
                     </Box>
                     <Box flexGrow={1} flexShrink={1}>
                       <Text color={isSelected ? "white" : "gray"} wrap="truncate-end">
-                        {t.prompt}
+                        {cleanTaskPrompt(t.prompt)}
                       </Text>
                     </Box>
                     {t.tokensUsed !== undefined && t.tokensUsed > 0 && (

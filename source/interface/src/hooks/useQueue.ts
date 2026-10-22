@@ -18,9 +18,11 @@ export interface QueueHookState {
     payloads: QueueDispatchPayload[],
     onTaskComplete?: (result: QueueDispatchResult) => void,
     onPipelineComplete?: () => void,
-    chatId?: string
+    chatId?: string,
+    onTaskError?: (failedTask: SessionTask, errorMsg: string) => void
   ) => Promise<void>;
   clearQueue: () => void;
+  setTotalTokensUsed: (tokens: number | ((prev: number) => number)) => void;
 }
 
 export function useQueue(): QueueHookState {
@@ -38,6 +40,7 @@ export function useQueue(): QueueHookState {
     setActiveTask(null);
     setIsProcessing(false);
     isRunningRef.current = false;
+    engineBridge.queueReset().catch(() => {});
   }, []);
 
   // Dispatch a full pipeline of tasks sequentially
@@ -46,7 +49,8 @@ export function useQueue(): QueueHookState {
       payloads: QueueDispatchPayload[],
       onTaskComplete?: (result: QueueDispatchResult) => void,
       onPipelineComplete?: () => void,
-      chatId?: string
+      chatId?: string,
+      onTaskError?: (failedTask: SessionTask, errorMsg: string) => void
     ) => {
       if (isRunningRef.current) {
         console.warn("Queue is already executing a pipeline. Please wait for it to finish.");
@@ -84,8 +88,10 @@ export function useQueue(): QueueHookState {
             role: nextTask.role,
             stage: nextTask.stage,
             prompt: nextTask.prompt,
+            fullPrompt: nextTask.fullPrompt,
             filePaths: nextTask.filePaths,
             fileBoundaries: nextTask.fileBoundaries,
+            simulatedOutput: nextTask.simulatedOutput,
           });
 
           if (response.success && response.data) {
@@ -123,14 +129,22 @@ export function useQueue(): QueueHookState {
               onTaskComplete(result);
             }
           } else {
-            // Task failed
+            // Task failed (e.g. 3x hash loop detector trip or boundary violation)
             const errorMsg = response.error || "Unknown execution error";
             sessionManager.updateStatus(nextTask.taskId, "error", errorMsg);
             setTasks(sessionManager.getTasks());
+            if (onTaskError) {
+              onTaskError(nextTask, errorMsg);
+            }
+            break; // Immediately halt pipeline on failure!
           }
         } catch (err: any) {
           sessionManager.updateStatus(nextTask.taskId, "error", err.message);
           setTasks(sessionManager.getTasks());
+          if (onTaskError) {
+            onTaskError(nextTask, err.message);
+          }
+          break; // Immediately halt pipeline on error!
         }
       }
 
@@ -162,5 +176,6 @@ export function useQueue(): QueueHookState {
     totalTokensUsed,
     dispatchPipeline,
     clearQueue,
+    setTotalTokensUsed,
   };
 }

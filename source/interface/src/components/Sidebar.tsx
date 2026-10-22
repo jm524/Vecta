@@ -17,8 +17,14 @@ interface SidebarProps {
   tokensUsed?: number;
   tokenCap1?: number;
   tokenCap2?: number;
+  tokenCaps?: {
+    cap1: number;
+    cap2: number;
+    enabled: boolean;
+  };
   tasks?: TaskItem[];
   height?: number;
+  isProcessing?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -26,12 +32,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
   tokensUsed = 0,
   tokenCap1 = 10000,
   tokenCap2 = 100000,
+  tokenCaps,
   tasks = [],
   height = 20,
+  isProcessing = false,
 }) => {
-  const isWarning = tokensUsed >= tokenCap1;
-  const isOverLimit = tokensUsed >= tokenCap2;
-  const tokenColor = isOverLimit ? "red" : isWarning ? "yellow" : "green";
+  const effectiveCap1 = tokenCaps?.cap1 ?? tokenCap1;
+  const effectiveCap2 = tokenCaps?.cap2 ?? tokenCap2;
+  const isCapsEnabled = tokenCaps ? tokenCaps.enabled : true;
+
+  // x# and xx# appear UNDER the # of tokens (e.g. 230,000 -> x3 - 30,000 tokens & xx2 - 200,000 tokens)
+  // x10 rolls over to xx1 (xCount is modulo 10); xx# scales indefinitely with no upper limit.
+  const tierLabels: string[] = [];
+  if (isCapsEnabled) {
+    const xxCount = Math.floor(tokensUsed / effectiveCap2);
+    const remainder = tokensUsed % effectiveCap2;
+    const xCount = Math.floor(remainder / effectiveCap1);
+
+    if (xCount > 0) {
+      tierLabels.push(`x${xCount} - ${(xCount * effectiveCap1).toLocaleString()} tokens`);
+    }
+    if (xxCount > 0) {
+      tierLabels.push(`xx${xxCount} - ${(xxCount * effectiveCap2).toLocaleString()} tokens`);
+    }
+  }
 
   return (
     <Box
@@ -58,16 +82,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </Text>
       </Box>
 
-      {/* Widget 1: Task Token Count */}
+      {/* Widget 1: Task Token Count (Numerical Tracking) */}
       <Box flexDirection="column" marginBottom={1}>
-        <Text bold dimColor>
-          TOKENS
-        </Text>
         <Box flexDirection="row" justifyContent="space-between">
-          <Text bold color={tokenColor}>
+          <Text bold dimColor>
+            TOKENS
+          </Text>
+          {isProcessing && (
+            <Text bold color="cyan">
+              [ACTIVE]
+            </Text>
+          )}
+        </Box>
+        <Box flexDirection="column">
+          <Text bold>
             {tokensUsed.toLocaleString()}
           </Text>
-          <Text dimColor>/{tokenCap1.toLocaleString()}</Text>
+          {tierLabels.map((lbl, idx) => (
+            <Text key={idx} dimColor>
+              {lbl}
+            </Text>
+          ))}
         </Box>
       </Box>
 

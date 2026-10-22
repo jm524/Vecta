@@ -482,3 +482,84 @@ export function updateChatNarrative(
   current.narrative = narrative;
   return saveChatSummary(current, customDir);
 }
+
+// ---------------------------------------------------------------------------
+// DAY 18 (OCT 21): MULTI-TIER MEMORY ASSEMBLY FOR AGENT BRIEFS
+// ---------------------------------------------------------------------------
+
+export interface AssembledMemoryTiers {
+  tier1Preferences: string[];
+  tier2CCM: ScopeCCM;
+  tier3Summary: ChatSummary;
+}
+
+/**
+ * Loads all 3 memory tiers for a given chat and optional project scope.
+ * Tier 1: Global preferences (.vecta/memory/general.json)
+ * Tier 2: Scoped Cross-Chat Memory (CCM.json)
+ * Tier 3: Active Chat Summary (summary.json)
+ */
+export function loadAllMemoryTiers(
+  chatId: string,
+  projectId?: string | null,
+  customDir?: string
+): AssembledMemoryTiers {
+  const tier1Preferences = getGlobalPreferences(customDir);
+  const scopeId = projectId && projectId.trim() ? projectId.trim() : "general";
+  const tier2CCM = getScopeCCM(scopeId, customDir);
+  const tier3Summary = getChatSummary(chatId, customDir);
+
+  return {
+    tier1Preferences,
+    tier2CCM,
+    tier3Summary,
+  };
+}
+
+/**
+ * Formats the assembled memory tiers into clear prompt sections for agent task briefs.
+ */
+export function formatMemoryTiersForBrief(tiers: AssembledMemoryTiers): string {
+  const blocks: string[] = [];
+
+  // Tier 1: Global Preferences
+  if (tiers.tier1Preferences && tiers.tier1Preferences.length > 0) {
+    blocks.push(
+      `[TIER 1 - GLOBAL PREFERENCES]\n` +
+        tiers.tier1Preferences.map((p, i) => `${i + 1}. ${p}`).join("\n")
+    );
+  }
+
+  // Tier 2: Scoped Cross-Chat Memory (CCM)
+  const ccmPoints = tiers.tier2CCM?.keyPoints?.filter(Boolean) || [];
+  const ccmNarrative = (tiers.tier2CCM?.narrative || "").trim();
+  if (ccmPoints.length > 0 || ccmNarrative) {
+    const ccmParts: string[] = [];
+    if (tiers.tier2CCM?.scopeName) {
+      ccmParts.push(`Scope: ${tiers.tier2CCM.scopeName}`);
+    }
+    if (ccmPoints.length > 0) {
+      ccmParts.push(`Key Points:\n${ccmPoints.map((kp) => `- ${kp}`).join("\n")}`);
+    }
+    if (ccmNarrative) {
+      ccmParts.push(`Cross-Chat Context:\n${ccmNarrative}`);
+    }
+    blocks.push(`[TIER 2 - CROSS-CHAT MEMORY (CCM)]\n` + ccmParts.join("\n\n"));
+  }
+
+  // Tier 3: Active Chat Summary
+  const chatPoints = tiers.tier3Summary?.keyPoints?.filter(Boolean) || [];
+  const chatNarrative = (tiers.tier3Summary?.narrative || "").trim();
+  if (chatPoints.length > 0 || chatNarrative) {
+    const chatParts: string[] = [];
+    if (chatPoints.length > 0) {
+      chatParts.push(`Key Points:\n${chatPoints.map((kp) => `- ${kp}`).join("\n")}`);
+    }
+    if (chatNarrative) {
+      chatParts.push(`Chat Summary:\n${chatNarrative}`);
+    }
+    blocks.push(`[TIER 3 - ACTIVE CHAT MEMORY]\n` + chatParts.join("\n\n"));
+  }
+
+  return blocks.join("\n\n");
+}

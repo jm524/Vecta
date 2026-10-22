@@ -27,12 +27,19 @@ type PingResponse struct {
 
 // QueueDispatchPayload carries task instructions and boundaries sent from TypeScript to Go.
 type QueueDispatchPayload struct {
-	TaskID         string   `json:"taskId"`
-	Role           string   `json:"role"`
-	Stage          int      `json:"stage"`
-	Prompt         string   `json:"prompt"`
-	FilePaths      []string `json:"filePaths"`
-	FileBoundaries []string `json:"fileBoundaries"`
+	TaskID          string   `json:"taskId"`
+	Role            string   `json:"role"`
+	Stage           int      `json:"stage"`
+	Prompt          string   `json:"prompt"`
+	FullPrompt      string   `json:"fullPrompt,omitempty"`
+	FilePaths       []string `json:"filePaths"`
+	FileBoundaries  []string `json:"fileBoundaries"`
+	SimulatedOutput string   `json:"simulatedOutput,omitempty"`
+}
+
+// QueueResetResult is returned when the queue runner hash loop detector history is cleared.
+type QueueResetResult struct {
+	Success bool `json:"success"`
 }
 
 // HardwareScanPayload carries optional custom search paths for finding models on disk.

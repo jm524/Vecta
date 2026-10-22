@@ -153,6 +153,11 @@ export class EngineBridge {
     return this.send<CryptoSecretResult>("crypto_delete_secret", { key });
   }
 
+  // Resets the queue runner's output hash loop detector history.
+  public async queueReset(): Promise<BridgeResponse<{ success: boolean }>> {
+    return this.send<{ success: boolean }>("queue_reset");
+  }
+
   // Closes the Go engine process when the user exits the app.
   public stop(): void {
     if (this.process) {

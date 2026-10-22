@@ -132,6 +132,19 @@ export interface TaskBrief {
   plan?: string;
   // Specific memory snippets selected by Manager from CCM or summary
   memorySnippets?: string[];
+  // Structured 3-tier memory context (Day 18)
+  memoryTiers?: {
+    tier1Preferences?: string[];
+    tier2CCM?: {
+      scopeName?: string;
+      keyPoints?: string[];
+      narrative?: string;
+    };
+    tier3Summary?: {
+      keyPoints?: string[];
+      narrative?: string;
+    };
+  };
   // The exact specific sub-task this role needs to perform right now
   taskDescription: string;
   // Exact file paths this role is allowed to touch for this task
@@ -212,9 +225,59 @@ export function assembleTaskPrompt(role: RoleDefinition, brief: TaskBrief): stri
     sections.push(`[USER PROMPT - ${role.name.toUpperCase()}]\n${roleUserPrompt.trim()}`);
   }
 
-  // Layer 3: Memory Snippets
+  // Layer 3: Memory Tiers & Project Memory (Day 18 Resilience)
+  const memorySections: string[] = [];
+
+  if (brief.memoryTiers) {
+    const { tier1Preferences, tier2CCM, tier3Summary } = brief.memoryTiers;
+
+    // Tier 1: Global Preferences
+    if (tier1Preferences && tier1Preferences.length > 0) {
+      memorySections.push(
+        `[TIER 1 - GLOBAL PREFERENCES]\n` +
+          tier1Preferences.map((p, i) => `${i + 1}. ${p}`).join("\n")
+      );
+    }
+
+    // Tier 2: Scoped Cross-Chat Memory (CCM)
+    const ccmPoints = tier2CCM?.keyPoints?.filter(Boolean) || [];
+    const ccmNarrative = (tier2CCM?.narrative || "").trim();
+    if (ccmPoints.length > 0 || ccmNarrative) {
+      const ccmParts: string[] = [];
+      if (tier2CCM?.scopeName) {
+        ccmParts.push(`Scope: ${tier2CCM.scopeName}`);
+      }
+      if (ccmPoints.length > 0) {
+        ccmParts.push(`Key Points:\n${ccmPoints.map((kp) => `- ${kp}`).join("\n")}`);
+      }
+      if (ccmNarrative) {
+        ccmParts.push(`Cross-Chat Context:\n${ccmNarrative}`);
+      }
+      memorySections.push(`[TIER 2 - CROSS-CHAT MEMORY (CCM)]\n` + ccmParts.join("\n\n"));
+    }
+
+    // Tier 3: Active Chat Summary
+    const chatPoints = tier3Summary?.keyPoints?.filter(Boolean) || [];
+    const chatNarrative = (tier3Summary?.narrative || "").trim();
+    if (chatPoints.length > 0 || chatNarrative) {
+      const chatParts: string[] = [];
+      if (chatPoints.length > 0) {
+        chatParts.push(`Key Points:\n${chatPoints.map((kp) => `- ${kp}`).join("\n")}`);
+      }
+      if (chatNarrative) {
+        chatParts.push(`Chat Summary:\n${chatNarrative}`);
+      }
+      memorySections.push(`[TIER 3 - ACTIVE CHAT MEMORY]\n` + chatParts.join("\n\n"));
+    }
+  }
+
+  // Any additional memory snippets
   if (brief.memorySnippets && brief.memorySnippets.length > 0) {
-    sections.push(`[RELEVANT PROJECT MEMORY]\n${brief.memorySnippets.join("\n")}`);
+    memorySections.push(`[RELEVANT PROJECT MEMORY]\n${brief.memorySnippets.join("\n")}`);
+  }
+
+  if (memorySections.length > 0) {
+    sections.push(memorySections.join("\n\n"));
   }
 
   // Layer 4: Specific Task Brief & Boundaries

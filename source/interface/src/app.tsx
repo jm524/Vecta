@@ -19,14 +19,28 @@ import { SettingsView } from "./commands/settings.js";
 import { useSession } from "./hooks/useSession.js";
 import type { QueueDispatchPayload } from "./types/bridge.js";
 import { pruneInactiveRawLogs } from "../../roles/documenter.js";
+import { readConfig } from "../../state/config.js";
+import { loadAllMemoryTiers } from "../../state/memory.js";
+import { assembleTaskPrompt } from "../../roles/base.js";
 
 export const App: React.FC = () => {
   const { exit } = useApp();
   // Manage mode (PLANNING = "PLAN" / IMPLEMENTATION = "BUILD")
   const { mode, setMode } = useModeTab("IMPLEMENTATION");
 
+  // Load configuration for token caps and settings
+  const [appConfig, setAppConfig] = useState(() => readConfig());
+
   // Hook for strictly sequential FIFO task execution
-  const { tasks, totalTokensUsed, dispatchPipeline, clearQueue, isProcessing, activeTask } = useQueue();
+  const {
+    tasks,
+    totalTokensUsed,
+    dispatchPipeline,
+    clearQueue,
+    isProcessing,
+    activeTask,
+    setTotalTokensUsed,
+  } = useQueue();
 
   // Track dynamic terminal window size so Vecta fills the entire screen
   const [terminalSize, setTerminalSize] = useState({
@@ -406,11 +420,44 @@ export const App: React.FC = () => {
       }
 
       // Stage 1: Dispatched Builder
+      const activeChatId = session.getActiveChatId() || session.activeChatId || "default";
+      const memoryTiers = loadAllMemoryTiers(activeChatId, session.activeChat?.projectId);
+
+      // Helper to assemble role prompt with Layer 1 safety, role instructions, and 3-tier memory (Day 18)
+      const buildRolePrompt = (roleName: string, subTask: string, paths: string[]): string => {
+        const found = rolesHook.roles.find(
+          (r) => r.name.toLowerCase() === roleName.toLowerCase() || r.slug === roleName.toLowerCase()
+        );
+        if (found) {
+          return assembleTaskPrompt(found, {
+            userRequest: promptText,
+            taskDescription: subTask,
+            allowedPaths: paths,
+            allowedBoundaries: ["source/"],
+            memoryTiers: {
+              tier1Preferences: memoryTiers.tier1Preferences,
+              tier2CCM: {
+                scopeName: memoryTiers.tier2CCM.scopeName,
+                keyPoints: memoryTiers.tier2CCM.keyPoints,
+                narrative: memoryTiers.tier2CCM.narrative,
+              },
+              tier3Summary: {
+                keyPoints: memoryTiers.tier3Summary.keyPoints,
+                narrative: memoryTiers.tier3Summary.narrative,
+              },
+            },
+          });
+        }
+        return subTask;
+      };
+
+      // Stage 1: Dispatched Builder
       pipeline.push({
         taskId: `task-${runId}-1`,
         role: builderRole,
         stage: 1,
         prompt: promptText,
+        fullPrompt: buildRolePrompt(builderRole, promptText, builderPaths),
         filePaths: builderPaths,
         fileBoundaries: ["source/"],
       });
@@ -422,6 +469,7 @@ export const App: React.FC = () => {
           role: checkerRole,
           stage: 2,
           prompt: checkerPrompt,
+          fullPrompt: buildRolePrompt(checkerRole, checkerPrompt, builderPaths),
           filePaths: builderPaths,
           fileBoundaries: ["source/"],
         });
@@ -433,6 +481,7 @@ export const App: React.FC = () => {
         role: "Documenter",
         stage: 3,
         prompt: "Persist audit trail to raw.log and compact memory",
+        fullPrompt: buildRolePrompt("Documenter", "Persist audit trail to raw.log and compact memory", ["source/.vecta/"]),
         filePaths: ["source/.vecta/"],
         fileBoundaries: ["source/"],
       });
@@ -452,7 +501,10 @@ export const App: React.FC = () => {
           // When all tasks in the pipeline finish
           addMessage("Manager", "All pipeline tasks completed successfully.", rolesHook.getRoleColor("Manager"));
         },
-        session.getActiveChatId() || session.activeChatId || "default"
+        session.getActiveChatId() || session.activeChatId || "default",
+        (_failedTask, errorMsg) => {
+          addMessage("Manager", `Execution halted: ${errorMsg}`, "red");
+        }
       );
     }
   };
@@ -615,7 +667,10 @@ export const App: React.FC = () => {
       <Box width={terminalSize.columns} height={appHeight}>
         <SettingsView
           terminalSize={terminalSize}
-          onClose={() => setActiveOverlay("none")}
+          onClose={() => {
+            setAppConfig(readConfig());
+            setActiveOverlay("none");
+          }}
           onNavigateToRoles={() => setActiveOverlay("roles")}
           onNavigateToMemory={() => setActiveOverlay("memory")}
         />
@@ -639,13 +694,17 @@ export const App: React.FC = () => {
         roles={rolesHook.roles}
       />
 
-      {/* Optional Right Sidebar */}
+      {/* Optional Right Sidebar (Day 18 Live Token Sync) */}
       {sidebarOpen && (
         <Sidebar
           mode={mode}
           tokensUsed={totalTokensUsed}
+          tokenCap1={appConfig.tokenCaps?.cap1 || 10000}
+          tokenCap2={appConfig.tokenCaps?.cap2 || 100000}
+          tokenCaps={appConfig.tokenCaps}
           tasks={sidebarTasks}
           height={appHeight}
+          isProcessing={isProcessing}
         />
       )}
     </Box>

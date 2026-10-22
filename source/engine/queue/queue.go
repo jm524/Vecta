@@ -1,39 +1,89 @@
 // Status:: in-progress
 // This file is the Go sequential task runner.
-// It checks file boundaries and executes tasks one by one.
+// It checks file boundaries, executes tasks one by one, and halts on runaway model loops.
 package queue
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vecta-cli/engine/bridge"
 )
 
-// Runner manages sequential task execution and path checks.
-type Runner struct{}
+// Runner manages sequential task execution, path checks, and 3x hash loop detection.
+type Runner struct {
+	mu           sync.Mutex
+	outputHashes []string
+}
 
 // NewRunner creates a new queue runner.
 func NewRunner() *Runner {
-	return &Runner{}
+	return &Runner{
+		outputHashes: make([]string, 0),
+	}
 }
 
-// ExecuteTask runs a single role task and enforces file boundaries.
+// Reset clears the output hash history (e.g. at the start of a new pipeline or session).
+func (r *Runner) Reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.outputHashes = make([]string, 0)
+}
+
+// GetRecentHashes returns a copy of recently recorded output hashes for testing/telemetry.
+func (r *Runner) GetRecentHashes() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cp := make([]string, len(r.outputHashes))
+	copy(cp, r.outputHashes)
+	return cp
+}
+
+// hashSHA256 computes a SHA256 hex string for a given text output.
+func hashSHA256(text string) string {
+	sum := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(sum[:])
+}
+
+// ExecuteTask runs a single role task, enforces file boundaries, and checks for runaway loops.
 func (r *Runner) ExecuteTask(payload bridge.QueueDispatchPayload) (*bridge.QueueDispatchResult, error) {
 	// 1. Check Layer 1 file boundaries: ensure the role is not trying to touch forbidden directories.
 	if err := r.validateBoundaries(payload.FilePaths, payload.FileBoundaries); err != nil {
 		return nil, fmt.Errorf("boundary check failed for %s: %w", payload.Role, err)
 	}
 
-	// 2. Simulate task execution duration (one at a time, strictly sequential).
-	time.Sleep(300 * time.Millisecond)
+	// 2. Formulate the role output.
+	// If a custom or simulated output is provided in payload, use that; otherwise generate standard role output.
+	output := payload.SimulatedOutput
+	if output == "" {
+		output = fmt.Sprintf("[%s]: Processed prompt '%s' successfully.", payload.Role, payload.Prompt)
+	}
 
-	// 3. Formulate the role output.
-	output := fmt.Sprintf("[%s completed task %s]: Processed prompt '%s' successfully.", payload.Role, payload.TaskID, payload.Prompt)
+	// 3. 3x Hash Loop Detector (Day 18 Resilience):
+	// Check if this output is identical to the last 2 consecutive outputs.
+	outHash := hashSHA256(output)
 
-	// 4. Return result with token count and timestamp.
+	r.mu.Lock()
+	n := len(r.outputHashes)
+	if n >= 2 && r.outputHashes[n-1] == outHash && r.outputHashes[n-2] == outHash {
+		r.mu.Unlock()
+		return nil, fmt.Errorf("runaway loop detected: 3 consecutive identical outputs (hash: %.8s). Execution halted to prevent model runaway.", outHash)
+	}
+	r.outputHashes = append(r.outputHashes, outHash)
+	if len(r.outputHashes) > 20 {
+		r.outputHashes = r.outputHashes[len(r.outputHashes)-20:]
+	}
+	r.mu.Unlock()
+
+	// 4. Simulate task execution duration (one at a time, strictly sequential).
+	time.Sleep(100 * time.Millisecond)
+
+	// 5. Return result with token count and timestamp.
 	result := &bridge.QueueDispatchResult{
 		TaskID:      payload.TaskID,
 		Role:        payload.Role,

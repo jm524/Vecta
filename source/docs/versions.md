@@ -337,3 +337,53 @@
   - Production bundle build (`esbuild`): bundle generated `dist/main.js` (1.8MB) with 0 errors.
   - Strict zero-emoji compliance across code, logs, and docs.
 
+### v0.0.18 — October 21, 2026
+#### Added
+- **3x Hash Loop Detector in Go Engine (`source/engine/queue/queue.go`, `source/engine/queue/queue_test.go`):**
+  - Thread-safe sliding window tracking SHA256 hashes of task outputs in `Runner`.
+  - Automatically trips when 3 consecutive identical output hashes are detected, aborting runaway model execution immediately and returning an actionable error message.
+  - Implemented `Reset()` method and `queue_reset` IPC bridge action to clear hash history between pipeline runs and sessions.
+  - Added unit test suite `queue_test.go` covering boundary verification, normal execution, 3x loop trip, and state recovery.
+- **3-Tier Memory Wiring (`source/state/memory.ts`, `source/roles/base.ts`, `source/interface/src/app.tsx`):**
+  - Implemented `loadAllMemoryTiers(chatId, projectId, customDir)` to load Tier 1 (`general.json`), Tier 2 (`CCM.json`), and Tier 3 (`summary.json`).
+  - Implemented `formatMemoryTiersForBrief(tiers)` for human-readable and structured prompt serialization.
+  - Extended `TaskBrief` and `assembleTaskPrompt` in `roles/base.ts` to inject formatted memory sections into the role prompt stack (`[TIER 1 - GLOBAL PREFERENCES]`, `[TIER 2 - CROSS-CHAT MEMORY (CCM)]`, `[TIER 3 - ACTIVE CHAT MEMORY]`).
+  - Integrated into `app.tsx`: task dispatch automatically retrieves memory tiers for the active chat and project scope, injecting context into dispatched role briefs.
+- **Token Sidebar Live Sync & Token Caps (`source/interface/src/components/Sidebar.tsx`, `source/interface/src/app.tsx`):**
+  - Connected live `totalTokensUsed` and `isProcessing` state into `Sidebar.tsx`.
+  - Added real-time `[ACTIVE]` indicator during task execution and purely numerical tracking.
+  - Dynamically wired `tokenCaps.cap1` and `tokenCaps.cap2` from `.vecta/config.json` via `readConfig()`.
+  - Removed all warning colors and warning thresholds from token counters (pure neutral numerical tracking).
+  - Implemented multi-tier `x#` (10,000 increments) and `xx#` (100,000 increments) rendering directly beneath `# of tokens` in `Sidebar.tsx`.
+  - Enforced rollover law: `x10` rolls over into `xx1` (since remainder is modulo 100k, `xCount` is strictly 0 to 9); `xx#` scales infinitely with no upper bound.
+  - Below 10,000 tokens (e.g. 0 or 4,500), displays only raw numbers with no tier labels below it.
+  - Removed token bar from above the chat input box to keep the input area unobstructed.
+- **Queue Prompt Sanitization & Security Boundary Insulation (`source/interface/src/commands/queue.tsx`, `source/interface/src/app.tsx`):**
+  - Separated `prompt` (clean user instruction or duty) and `fullPrompt` (4-layer prompt stack with Layer 1 security rules, role default system prompt, user prompt, and memory tiers).
+  - Implemented `cleanTaskPrompt` in `commands/queue.tsx` to strip Layer 1 security limit rules (`[VECTA LAYER 1 CORE SECURITY RULES...]`), role default system prompts (`You are the [Role] for Vecta...`), and internal memory headers from inspector rows and task list lines.
+- **3x Hash Loop Engine Integration & Error Handoff (`source/interface/src/hooks/useQueue.ts`, `source/interface/src/app.tsx`):**
+  - Connected Go 3x hash loop trip directly to UI via `onTaskError` callback.
+  - When runaway execution trips, the sequential queue immediately halts remaining tasks and Manager displays the red halt notification in chat: `Execution halted: runaway loop detected: 3 consecutive identical outputs...`.
+  - Thoroughly validated via automated test suite and Go engine unit tests.
+- **External Storage Model Organization (Seagate Drive):**
+  - Organized local Llama 3.1 8B model weights (`blobs/` and `manifests/`) into users external drive with zero bytes touching `C:`.
+  - Built customized tag `vecta-default:latest` with tailored system prompt and canonical repo template `source/engine/models/Modelfile`.
+- **Pre-Flight & Setup Improvements:**
+  - Documented Improvements 28 (external drive model scanning), 29 (domain-specific prompt specialization), and 30 (setup wizard pre-flight check for Ollama before offering model download).
+- **Quality Assurance & Verification:**
+  - Created automated test suite `source/interface/src/testing/test-oct21-resilience-ccm.ts` covering 5 lifecycle scenarios: multi-tier memory loading, prompt stack assembly with 3-tier memory injection, 3x hash loop detection tripping on identical outputs, queue reset & execution recovery, and token sidebar cap thresholds. All passed (5/5).
+  - Created unit test suite `source/interface/src/testing/test-queue-tokens.ts` verifying prompt cleaning, hidden prompt removal, `x10 -> xx1` rollover, and infinite `xx#` scaling.
+  - Go unit tests in `source/engine/queue/queue_test.go` passed cleanly.
+  - Added NPM scripts `"test:oct21"` and `"test:queue"` in `package.json`.
+  - TypeScript compilation (`tsc --noEmit`): clean exit 0.
+  - Production bundle build (`esbuild`): generated `dist/main.js` (1.8MB) with 0 errors.
+  - Strict zero-emoji compliance across code, logs, and docs.
+
+### v0.0.19 — October 22, 2026
+#### In Progress
+- **Day 19: Real Inference & Device Server:**
+  - Real model inference engine: HTTP calls to Ollama (`127.0.0.1:11434`) and cloud endpoints with streaming output.
+  - Vecta default fallback: route tasks to `llama3.1:8b` / `vecta-default` strictly only if present on disk; otherwise prompt user to select a cloud model or install Ollama.
+  - Cross-platform global `vecta` CLI command (Windows, macOS, Linux).
+  - Go device server (`127.0.0.1`) and `adb reverse` tunnel binding for Android client companion.
+

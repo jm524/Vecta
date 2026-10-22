@@ -42,7 +42,7 @@ Per `Building/Checklist.md`, these architectural definitions are prerequisites f
 | **20** | Fri Oct 23 | `v0.0.20` | **Android Client** | Android emulator client: remote chat view and live task status checklist. |
 | **21** | Sat Oct 24 | `v0.0.21` | **Remote Control Sync** | Role toggle & `/prompt` sync back to host machine + session persistence., fixing all debugging.md bugs and doing all improvements.md |
 
-| **22** | Sun Oct 25 | `v0.0.22` | **Packaging & Demo Polish** | Production packaging v0.1.0 + comprehensive user usage README.md + emulator disconnect auto-pause & reconnect grace window; full demo rehearsal. |
+| **22** | Sun Oct 25 | `v0.0.22` | **Packaging & Demo Polish** | Production packaging v0.1.0 + setup wizard pre-flight (verifying Ollama installation before default model download) + comprehensive user usage README.md + emulator disconnect auto-pause & reconnect grace window; full demo rehearsal. |
 | **23** | Mon Oct 26 | `v0.1.0` | **DEADLINE SUBMISSION** | Congressional App Challenge final submission (demo video upload, project entry form, GitHub release tag v0.1.0). |
 
 ---

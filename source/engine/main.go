@@ -87,6 +87,18 @@ func handleRequest(req bridge.Request) {
 		}
 		sendJSON(resp)
 
+	case "queue_reset":
+		// Clear the queue runner's output hash history (resets 3x loop detector).
+		queueRunner.Reset()
+		resp := bridge.Response{
+			ID:      req.ID,
+			Success: true,
+			Data: bridge.QueueResetResult{
+				Success: true,
+			},
+		}
+		sendJSON(resp)
+
 	case "hw_scan":
 		// Run the full hardware + runtime + model file scan.
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)

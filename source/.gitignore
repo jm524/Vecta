@@ -13,6 +13,8 @@ dist/
 # Go
 engine/vecta-engine
 engine/vecta-engine.exe
+interface/bin/
+*.exe
 
 # OS junk
 .DS_Store

@@ -187,6 +187,37 @@ tags:
 > 2. **Persistent Standing Reminder:** Per Claude Doc 14, Manager marks the log as unencrypted and presents a reminder banner at natural task checkpoints: `[Manager] Reminder: raw log still decrypted. Type /encrypt when finished viewing.`
 > 3. **`/encrypt` Command:** User runs `/encrypt` to immediately wipe and securely delete the temporary plaintext file from disk, returning the chat's audit trail to a sealed at-rest state.
 
+> [!todo] 28. Multi-Drive & External Storage Model Detection (`D:`, `E:`, Removable Drives)
+> **Location:** `source/engine/scanner/scanner.go`, `source/engine/scanner/models.go`
+> **Context:** Users with large local AI models frequently store Ollama models or `.gguf` weights on secondary NVMe, external SSDs, or dedicated media partitions (e.g., `D:\OllamaModels`, `D:\models`, `E:\AI_Models`) to preserve space on their primary OS drive (`C:\`).
+> **Current State:** The Go hardware and model scanner primarily probes default paths under the user home directory (`~/.ollama/models`, `~/models`, `C:\Users\<user>\...`) and configured workspace folders. If an external drive or secondary volume is connected (such as `D:\`), Vecta does not automatically discover models unless specifically passed as a custom path.
+> **Improvement:**
+> 1. **Drive Letter & Volume Enumeration:** Add cross-platform volume scanning in `scanner.go` (e.g. iterating Windows drive letters `D:` through `Z:`, or `/Volumes/` on macOS and `/mnt/` / `/media/` on Linux).
+> 2. **Standard Folder Probing:** Automatically probe known directory names on discovered volumes (such as `<Drive>:\OllamaModels`, `<Drive>:\.ollama`, `<Drive>:\models`, `<Drive>:\gguf`).
+> 3. **Environment Variable Ingestion:** Check `OLLAMA_MODELS` environment variable which directs Ollama storage to alternative drives like `D:\OllamaModels`.
+
+> [!todo] 29. Default Vecta Model System Prompt Specialization and Domain Refinement
+> **Location:** `source/engine/models/Modelfile`
+> **Context:** Vecta uses a customized Llama 3.1 8B tag (`vecta-default`) as its primary local coding model.
+> **Current State:** `Modelfile` defines a foundational system prompt enforcing zero emojis, technical conciseness, boundary compliance, and 4-layer prompt awareness.
+> **Improvement:**
+> 1. **Domain-Specific Handoff Formatting:** Tailor the system prompt with strict output tokens and delimiters so that Coder outputs machine-parseable code diffs that Reviewer and Documenter can ingest directly without regex parsing errors.
+> 2. **Terminal Viewport Constraints:** Instruct the model to avoid generating sprawling, unfocused explanations that exceed typical terminal heights (preventing scroll-jitter and token waste).
+> 3. **Vecta Architecture Specialization:** Embed knowledge of Vecta's directory layout (`source/engine/`, `source/interface/`, `source/roles/`, `source/state/`) so the model writes idiomatic Vecta code natively when tasked with extending the CLI.
+> 4. **Few-Shot Examples:** Integrate concise few-shot input/output examples within the Modelfile to guide deterministic code refactoring and clean unified diff generation.
+
+> [!todo] 30. Setup Wizard Pre-Flight Verification for Local Model Prerequisites
+> **Location:** `source/interface/src/` & `source/engine/scanner/`
+> **Context:** Packaging and first-run user onboarding (Oct 25, Day 22).
+> **Current State:** The default local model fallback (`llama-3.1-8B`) requires a local Ollama server running on `127.0.0.1:11434` to execute the weights.
+> **Improvement:**
+> 1. **Ollama Pre-Flight Detection:** Before prompting the user to download the default model (`vecta-default` / `llama-3.1-8B`), verify if Ollama is installed and running.
+> 2. **Clear Guidance on Missing Dependency:** If Ollama is not installed or unreachable, avoid attempting a failing download. Display clear actionable instructions: provide the link to install Ollama (`https://ollama.com`), or offer immediate fallback to cloud API keys (Groq, OpenAI, Anthropic) in `/roles`.
+> 3. **Disk Space Verification:** Ensure the target drive has at least 5.5GB of free space before initiating any local model pull to prevent mid-download storage exhaustion.
+
+
+
+
 
 
 
