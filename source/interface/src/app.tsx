@@ -1,7 +1,7 @@
 // Status:: in-progress
 // App is the full-screen terminal canvas.
 // It integrates the Queue engine, Chat stream, live Sidebar, and Mode switcher.
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Box, useInput, useApp } from "ink";
 import { Chat, type ChatMessage } from "./components/Chat.js";
 import { Sidebar } from "./components/Sidebar.js";
@@ -99,8 +99,13 @@ export const App: React.FC = () => {
         await engineBridge.cryptoInit();
         // Inactivity auto-delete runner (Claude Doc 14 & Sprint Plan §2I)
         pruneInactiveRawLogs().catch(() => {});
-        // Companion device server is not started automatically.
-        // It starts on-demand via '/server start' or '/server run' (or 'vecta server run' in CLI).
+
+        // Automatically start local USB companion device server on 127.0.0.1:8765
+        deviceBridge.startServer(8765).then(async (status) => {
+          if (status.running) {
+            await deviceBridge.setupAdbReverse(8765);
+          }
+        }).catch(() => {});
       } catch (err: any) {
         addMessage("System", `Engine bridge error: ${err.message}`, "red");
       }
@@ -112,15 +117,51 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Background companion sync: push latest chat & queue tasks to device server
+  const handleUserPromptRef = useRef<(text: string) => void>(() => {});
+
+  // Background device sync: push latest chat & queue tasks to device server
   useEffect(() => {
-    deviceBridge.syncState({
-      chatId: session.getActiveChatId() || "default",
-      messages: session.messages,
-      tasks: tasks,
-      roles: rolesHook.roles,
-    }).catch(() => {});
-  }, [session.messages, tasks, rolesHook.roles]);
+    let tick = 0;
+    const syncStateWithDevice = async () => {
+      try {
+        tick++;
+        // Auto-probe and reverse tunnel for newly plugged-in USB phone every ~4.5s
+        if (tick % 3 === 0) {
+          deviceBridge.setupAdbReverse(8765).catch(() => {});
+        }
+
+        const res = await deviceBridge.syncState({
+          chatId: session.getActiveChatId() || "default",
+          messages: session.messages,
+          tasks: tasks,
+          roles: rolesHook.roles,
+          isProcessing: isProcessing,
+          activeRole: activeTask?.role,
+        });
+        if (res?.toggles && res.toggles.length > 0) {
+          for (const t of res.toggles) {
+            if (t.role) {
+              const roleSlug = t.role.toLowerCase();
+              rolesHook.toggleRole(roleSlug);
+            }
+          }
+        }
+        if (res?.prompts && res.prompts.length > 0) {
+          for (const p of res.prompts) {
+            if (p.prompt) {
+              handleUserPromptRef.current(p.prompt);
+            }
+          }
+        }
+      } catch {
+        // non-blocking
+      }
+    };
+
+    syncStateWithDevice();
+    const timer = setInterval(syncStateWithDevice, 1500);
+    return () => clearInterval(timer);
+  }, [session.messages, tasks, rolesHook.roles, isProcessing, activeTask]);
 
   // Global keyboard shortcuts (Sidebar, Auto-accept, and PageUp/PageDown Scrolling)
   useInput((input, key) => {
@@ -325,67 +366,62 @@ export const App: React.FC = () => {
       return;
     }
 
-    // Companion device server & background inference server commands (/device or /server)
-    if (
-      trimmed === "/device start" ||
-      trimmed === "/device run" ||
-      trimmed === "/device" ||
-      trimmed === "/server start" ||
-      trimmed === "/server run"
-    ) {
-      deviceBridge.startServer(8765).then(async (res) => {
+    // Device bridge commands (/device, /device connect, /device disconnect, /device status)
+    if (trimmed === "/device connect") {
+      deviceBridge.connect(8765).then((res) => {
         if (res.running) {
-          const [adbOk, devices] = await Promise.all([
-            deviceBridge.setupAdbReverse(8765),
-            deviceBridge.listAdbDevices(),
-          ]);
-          let devMsg = "Companion device server started on http://127.0.0.1:8765 (strictly local USB, zero Wi-Fi).";
-          if (devices.length > 0) {
-            const devNames = devices.map(d => `${d.model || d.product || "Android"} (${d.isEmulator ? "Emulator" : "USB Phone"})`).join(", ");
-            devMsg += `\nConnected: ${devNames}. ADB Reverse active (tcp:8765 -> tcp:8765).`;
+          if (res.devices.length > 0) {
+            const devNames = res.devices
+              .map((d) => `${d.model || d.product || "Android"} (${d.isEmulator ? "Emulator" : "Connected Phone"})`)
+              .join(", ");
+            addMessage(
+              "System",
+              `Connected phone: ${devNames}. USB tunnel active on http://127.0.0.1:8765.`,
+              "green"
+            );
           } else {
-            devMsg += `\nADB Reverse: ${adbOk ? "Active" : "Standby"}. No USB phone detected yet. Plug in phone via USB with USB Debugging enabled.`;
+            addMessage(
+              "System",
+              "Device bridge active on http://127.0.0.1:8765. No phone detected yet. Plug in your phone via USB with USB Debugging enabled.",
+              "yellow"
+            );
           }
-          addMessage("System", devMsg, "green");
         } else {
-          addMessage("System", "Failed to start companion device server on port 8765.", "red");
+          addMessage("System", "Failed to start device bridge server on port 8765.", "red");
         }
       }).catch((err: any) => {
-        addMessage("System", `Companion server error: ${err.message}`, "red");
+        addMessage("System", `Device connect error: ${err.message}`, "red");
       });
       return;
     }
 
-    if (trimmed === "/device stop" || trimmed === "/server stop") {
-      shutdownOllamaServer();
-      Promise.all([
-        deviceBridge.removeAdbReverse(8765),
-        deviceBridge.stopServer(),
-        rolesHook.stopBackgroundServer(),
-      ]).then(([adbRes, devRes, bgMsg]) => {
-        addMessage("System", `Companion server stopped. Ollama inference server stopped. ${bgMsg}`, "blue");
+    if (trimmed === "/device disconnect") {
+      deviceBridge.disconnect(8765).then(() => {
+        addMessage("System", "Disconnected phone. USB bridge closed.", "blue");
       }).catch((err: any) => {
-        addMessage("System", `Server stop error: ${err.message}`, "yellow");
+        addMessage("System", `Device disconnect error: ${err.message}`, "yellow");
       });
       return;
     }
 
-    if (trimmed === "/device status" || trimmed === "/server status") {
+    if (trimmed === "/device" || trimmed === "/device status") {
       deviceBridge.getStatus().then((status) => {
         if (status.serverRunning) {
-          let msg = `Companion device server is ACTIVE on http://${status.boundAddress} (Loopback only - zero Wi-Fi).`;
+          let msg = `Device bridge is ACTIVE on http://${status.boundAddress} (Loopback only - zero Wi-Fi).`;
           if (status.connectedDevices && status.connectedDevices.length > 0) {
-            const names = status.connectedDevices.map(d => `${d.model || d.product || "Android"} (${d.state})`).join(", ");
-            msg += `\nConnected USB Devices: ${names}. Reverse: ${status.adbReversed ? "Active" : "Standby"}`;
+            const names = status.connectedDevices
+              .map((d) => `${d.model || d.product || "Android"} (${d.isEmulator ? "Emulator" : "Connected Phone"}, ${d.state})`)
+              .join(", ");
+            msg += `\nConnected: ${names}. USB Tunnel: ${status.adbReversed ? "Active" : "Standby"}`;
           } else {
-            msg += "\nConnected USB Devices: None detected. Plug in phone via USB with USB Debugging enabled.";
+            msg += "\nConnected: None detected. Plug in your phone via USB with USB Debugging enabled, then type '/device connect'.";
           }
           addMessage("System", msg, "green");
         } else {
-          addMessage("System", "Companion device server is STOPPED. Type '/device' or run 'vecta device' in terminal to launch it.", "yellow");
+          addMessage("System", "Device bridge is DISCONNECTED. Type '/device connect' to activate it.", "yellow");
         }
       }).catch((err: any) => {
-        addMessage("System", `Server status error: ${err.message}`, "red");
+        addMessage("System", `Device status error: ${err.message}`, "red");
       });
       return;
     }
@@ -408,9 +444,9 @@ export const App: React.FC = () => {
           "  /settings                - Configure theme, timeouts, token caps, and safety limits",
           "  /build                   - Switch to BUILD mode (code generation and execution)",
           "  /plan                    - Switch to PLAN mode (architectural breakdown)",
-          "  /device start (or /device) - Connect USB phone / emulator & start companion server (127.0.0.1:8765)",
-          "  /device status           - Check companion phone connection & reverse tunnel status",
-          "  /device stop             - Stop companion device server and background inference servers",
+          "  /device (or /device status) - List connected phone and check USB tunnel status",
+          "  /device connect          - Connect phone over USB tunnel (127.0.0.1:8765)",
+          "  /device disconnect       - Disconnect phone and release USB tunnel",
           "  /help                    - Display this command index and shortcut reference",
           "  /exit                    - Cleanly close and exit Vecta",
           "",
@@ -718,6 +754,10 @@ export const App: React.FC = () => {
     status: t.status,
     description: t.prompt,
   }));
+
+  useEffect(() => {
+    handleUserPromptRef.current = handleUserPrompt;
+  }, [handleUserPrompt]);
 
   // If the agent roles screen is open, display it full width
   if (activeOverlay === "roles") {

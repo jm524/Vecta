@@ -331,7 +331,7 @@ func handleRequest(req bridge.Request) {
 				sendError(req.ID, fmt.Sprintf("failed to parse device update payload: %v", err))
 				return
 			}
-			deviceServer.UpdateState(payload.ChatID, payload.Messages, payload.Tasks, payload.Roles)
+			deviceServer.UpdateState(payload.ChatID, payload.Messages, payload.Tasks, payload.Roles, payload.IsProcessing, payload.ActiveRole)
 		}
 		// Drain any remote actions (toggles, prompt edits) triggered from companion devices
 		toggles, prompts := deviceServer.DrainRemoteActions()

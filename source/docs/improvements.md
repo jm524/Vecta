@@ -231,6 +231,95 @@ tags:
 >    - **Machine-Parseable Code Blocks:** Ensure code responses strictly use fenced code blocks with file path headers (` ```<lang> path/to/file `) and clean diff formatting for seamless ingestion by Checkers and Documenter.
 >    - **Compact Terminal Viewport Sizing:** Train prompt instructions to structure bullet points and summaries compactly, preventing vertical scroll overflow and terminal layout jitter.
 
+> [!important] 32. Connected Phone Mobile Application Redesign, Modular Architecture, & Visual Identity Overhaul
+> **Location:** `source/device/`
+> **Context:** Mobile client field review (Oct 23, Day 20).
+> **Current State:** The mobile client previously used the working title "Vecta Companion" and had a functional but initial prototype aesthetic that felt unpolished (stock cards, basic bottom navigation, generic typography).
+> **Improvement:**
+> 1. **Product Rebranding & Architectural Naming:**
+>    - Transition terminology from "companion" to "connected phone" / "connected device" / "device bridge" across all documentation, UI screens, tests, and source directories.
+>    - Rename root mobile directory from `source/companion` to `source/device`.
+> 2. **Modular Component Architecture (Flutter Best Practices):**
+>    - Decompose the monolithic `main.dart` into a clean, decoupled component hierarchy under `source/device/lib/`:
+>      - `constants/theme.dart`: Centralized design system tokens, role palette, typography, and dynamic theme resolution.
+>      - `models/device_state.dart`: Immutable data models for chat messages, tasks, roles, and server payload synchronization.
+>      - `services/device_api.dart`: Isolated network layer handling bidirectional polling, endpoint auto-discovery (`127.0.0.1` loopback vs `10.0.2.2` emulator alias), remote actions, and non-blocking error handling.
+>      - `components/status_bar.dart`: System health indicators, real-time connection status dot, and generating status badges.
+>      - `components/generating_indicator.dart`: Role generation indicator banner with animated progress state.
+>      - `views/chat_tab.dart`: High-density monospace chat stream with optimistic remote prompt dispatch.
+>      - `views/tasks_tab.dart`: Task metrics header and pipeline stage checklist cards with live status badges.
+>      - `views/roles_tab.dart`: Autonomous agent workforce roster with remote activation toggles.
+>      - `screens/home_screen.dart`: Tab coordinator and lifecycle controller linking all modular components.
+>    - Embed comprehensive, professional code comments documenting architectural contracts, data flow, and state transitions.
+>    - Maintain strictly zero emojis across all code, docstrings, comments, and UI strings.
+
+> [!todo] 33. CLI `/settings` Dynamic Theme Color Synchronization with Connected Phone Application
+> **Location:** `source/interface/src/commands/settings.tsx`, `source/engine/device/device.go`, `source/device/lib/constants/theme.dart`
+> **Context:** Cross-platform design system coherence and customization.
+> **Current State:** Terminal theme preferences (e.g. primary accents, role tints, border colors) configured in the desktop CLI via `/settings` remain local to the terminal Ink canvas. The connected mobile phone uses fixed hardcoded color constants.
+> **Improvement:**
+> 1. **Bridge State Theme Payload:** Extend `DeviceState` in the Go bridge engine and `device-bridge.ts` to include an active `theme` payload containing primary, secondary, background, role, and status colors.
+> 2. **Dynamic Mobile Theme Consumption:** In `source/device/lib/constants/theme.dart`, implement dynamic theme derivation that ingests the theme payload received from `/api/state` and updates the Flutter `ThemeData` and role color maps in real-time.
+> 3. **Seamless Visual Continuity:** Changes made to color schemes or accent preferences in CLI `/settings` instantly propagate to the connected phone interface without requiring an app reload or reconnection.
+
+> [!important] 34. Task Queue Reactivity, Live Responsiveness, & Performance Overhaul
+> **Location:** `source/interface/src/hooks/useQueue.ts`, `source/interface/src/views/QueueView.tsx`, `source/engine/queue/queue.go`
+> **Context:** Real-time multi-agent execution pipeline feedback.
+> **Current State:** Under intensive model streaming or rapid multi-step autonomous task decomposition, the CLI task queue view can experience unresponsiveness, lag in rendering stage progress, or batched UI updates that drop intermediate progress frames.
+> **Improvement:**
+> 1. **Decoupled Event Streaming:** Decouple heavy LLM token streaming from task queue status updates. Route high-frequency token events through an independent lightweight emitter while publishing queue stage transitions (Pending -> In Progress -> Completed/Failed) through dedicated, debounced state dispatchers.
+> 2. **Instant UI State Dispatch:** In `useQueue.ts`, eliminate polling latency by adopting push-based event dispatching for task additions, role handoffs (e.g., Planner -> Coder -> Reviewer -> Documenter), and completion signals.
+> 3. **Zero-Lag Queue Inspector:** Optimize `QueueView.tsx` render cycles with memoized task cards and viewport virtualization, ensuring smooth terminal rendering and zero UI freezing during autonomous execution.
+> 4. **Reliable Cancellation & Exception Trapping:** Ensure that task cancellation (via keyboard abort or mobile client remote request) immediately halts the Go worker pool, clears pending queue items, and renders clear cancellation feedback across both desktop and connected phone interfaces.
+
+> [!todo] 35. Single-Plug Wireless Device Link (USB Once, Seamless Wireless Local Bridge)
+> **Location:** `source/interface/src/services/device-bridge.ts`, `source/engine/device/device.go`
+> **Context:** Developer ergonomics and physical mobile hardware mobility.
+> **Current State:** The device bridge requires a continuous physical USB connection with `adb reverse tcp:8765 tcp:8765`. If the user disconnects the USB cable, the connection drops immediately.
+> **Improvement:**
+> 1. **Single-Plug USB Pairing Workflow:**
+>    - When a phone is plugged in via USB, the CLI initiates a one-time pairing sequence: `adb tcpip 5555`.
+>    - The bridge discovers the phone's local Wi-Fi IP address automatically via `adb shell ip route` or `adb shell ip -f inet addr show wlan0`.
+>    - The bridge issues `adb connect <device-ip>:5555` to establish wireless ADB communication over the local network.
+> 2. **Unplug & Continue Seamlessly:**
+>    - Once wireless ADB is established, the user can unplug the USB cable. The bridge continues streaming state and accepting remote prompts over the wireless local socket.
+> 3. **Strict Local-Network Security Boundary:**
+>    - Wireless communication is strictly restricted to the local subnet (100% offline-compatible; zero external cloud routing, zero third-party relays).
+> 4. **Self-Healing Connection Daemon:**
+>    - If the Wi-Fi connection drops or latency spikes, the bridge enters a standby auto-recovery loop and seamlessly re-engages USB mode the moment the cable is re-attached.
+
+> [!important] 36. Real Model Tool Calling Engine & Autonomous Workspace CLI Actions (Go Sandbox Bounded)
+> **Location:** `source/engine/models/inference.go`, `source/engine/queue/queue.go`, `source/engine/tools/`, `source/roles/coder.ts`, `source/interface/src/hooks/useQueue.ts`
+> **Context:** Autonomous developer workflow execution (Oct 24, Day 21).
+> **Current State:** Real models (local Ollama models such as `llama3.2:3b`, `qwen2.5-coder:3b`, or cloud providers) currently output raw text or unified diff snippets into the chat stream. They cannot directly execute file inspections, apply targeted file edits, or run commands autonomously. The user or a brittle external script must manually copy and apply the output.
+> **Improvement:**
+> 1. **Core Tool Suite (CLI Agent Capabilities):**
+>    Implement a foundational set of developer tools matching modern AI coding assistants, implemented natively in Go within the engine's execution loop:
+>    - `read_file(path, start_line, end_line)`: Reads target file contents with optional line-range slicing to preserve token context windows on large source files.
+>    - `write_file(path, content, overwrite)`: Creates new files or overwrites existing files within allowed project boundaries, creating parent directories automatically.
+>    - `edit_file(path, target, replacement)`: Performs precise, contiguous block search-and-replace edits with exact whitespace matching, ensuring atomic code updates without clobbering whole files.
+>    - `list_directory(path, recursive, max_depth)`: Enumerates files and directory hierarchies to help models inspect workspace structure.
+>    - `search_files(pattern, path, file_filter)`: Rapid regex or keyword searching across workspace files (grep-like exploration).
+>    - `run_command(command, args, timeout_seconds)`: Executes safe workspace shell commands (e.g. `npm test`, `go test`, `tsc --noEmit`, `git status`) with stdout/stderr capture, exit code reporting, and timeout guards.
+> 2. **Go Engine Layer 1 Security Sandbox Enforcement:**
+>    - All tool calls must be strictly validated against Vecta's Layer 1 OS filesystem boundary rules (`filepath.Rel()` directory nesting checks in `queue.go`).
+>    - Path traversal attacks (`../`, symlink escapes, absolute drive paths outside workspace) are rejected deterministically before execution.
+>    - Sensitive path blacklists: Tool execution is strictly forbidden from accessing `.env`, `.git/`, `.vecta/keys/`, OS credential stores, or system directories.
+>    - Destructive command gates: Commands attempting destructive system modifications (e.g. `rmdir /s /q C:\`, disk formatting, registry edits) are trapped and aborted by the Go execution filter.
+> 3. **Structured Tool Calling Protocol (Dual-Mode):**
+>    - **Native Function Calling:** For models supporting structured tool schemas (Ollama tool calling API, OpenAI/Groq function calling), pass JSON schemas describing tool parameters and parse `tool_calls` in response payloads.
+>    - **Fenced XML/JSON Tool Protocol Fallback:** For lightweight local models (e.g. 3B parameter weights) that struggle with complex function schemas, support deterministic text-based tool call fences:
+>      ```xml
+>      <tool_call>
+>      {"name": "edit_file", "arguments": {"path": "source/main.go", "target": "oldCode", "replacement": "newCode"}}
+>      </tool_call>
+>      ```
+> 4. **Agentic Tool Loop Orchestration (Multi-Turn Execution):**
+>    - When a model outputs one or more tool calls, the Go runner intercepts them, validates security boundaries, executes the operations sequentially, and feeds formatted tool outputs (`<tool_response>...</tool_response>`) back into the context.
+>    - The model inspects the execution results (e.g., test output, compiler error, file diff) and either executes corrective tool calls or outputs the final completion message.
+>    - Enforce a maximum turn limit (e.g. 5-10 tool steps per task) and integrate with the 3x hash loop tripwire to prevent infinite model hallucination loops.
+
+
 
 
 

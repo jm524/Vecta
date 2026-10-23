@@ -120,10 +120,12 @@ type DeviceServerStatusResult struct {
 
 // DeviceServerUpdatePayload pushes latest chat messages and tasks to the companion device.
 type DeviceServerUpdatePayload struct {
-	ChatID   string          `json:"chatId,omitempty"`
-	Messages json.RawMessage `json:"messages,omitempty"`
-	Tasks    json.RawMessage `json:"tasks,omitempty"`
-	Roles    json.RawMessage `json:"roles,omitempty"`
+	ChatID       string          `json:"chatId,omitempty"`
+	Messages     json.RawMessage `json:"messages,omitempty"`
+	Tasks        json.RawMessage `json:"tasks,omitempty"`
+	Roles        json.RawMessage `json:"roles,omitempty"`
+	IsProcessing bool            `json:"isProcessing,omitempty"`
+	ActiveRole   string          `json:"activeRole,omitempty"`
 }
 
 // DeviceServerUpdateResult returns queued actions from companion devices.

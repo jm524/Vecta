@@ -12,7 +12,7 @@ import {
 } from "./helpers/keyboard.js";
 import { shutdownOllamaServer, ensureOllamaRunning } from "./helpers/process.js";
 
-// Standalone runner for companion device server (CLI command: vecta device [run|start] or vecta server [run|start])
+// Standalone runner for device bridge (CLI command: vecta device [connect|start])
 async function runDeviceServer(): Promise<void> {
   initVectaStorage();
 
@@ -32,7 +32,7 @@ async function runDeviceServer(): Promise<void> {
     ]);
 
     console.log("==================================================");
-    console.log("Vecta Companion Device Server");
+    console.log("Vecta Device Bridge");
     console.log("==================================================");
     console.log(`Status:      Active on http://127.0.0.1:${port}`);
     console.log("Security:    Strict loopback only (strictly local USB, zero Wi-Fi)");
@@ -40,20 +40,19 @@ async function runDeviceServer(): Promise<void> {
     if (devices.length > 0) {
       console.log(`Connected Devices (${devices.length}):`);
       for (const d of devices) {
-        const typeLabel = d.isEmulator ? "Android Emulator" : "Physical Device";
+        const typeLabel = d.isEmulator ? "Android Emulator" : "Connected Phone";
         const modelLabel = d.model || d.product || "Android Phone";
         console.log(`  * ${modelLabel} (${typeLabel}, serial: ${d.serial}, state: ${d.state})`);
       }
-      console.log(`ADB Reverse: Active (tcp:${port} -> tcp:${port} established)`);
+      console.log(`USB Reverse Tunnel: Active (tcp:${port} -> tcp:${port} established)`);
     } else {
       console.log("Connected Devices: None detected via USB.");
-      console.log(`ADB Reverse: ${adbOk ? "Active (standby)" : "Standby (Waiting for USB connection)"}`);
+      console.log(`USB Reverse Tunnel: ${adbOk ? "Active (standby)" : "Standby (Waiting for USB connection)"}`);
       console.log("");
-      console.log("To connect your phone or emulator:");
+      console.log("To connect your phone:");
       console.log("  1. Plug in your Android phone via USB cable.");
       console.log("  2. In Android Settings -> Developer Options -> turn ON 'USB Debugging'.");
       console.log("  3. Tap 'Allow' when the prompt appears on your phone.");
-      console.log("  (Or launch an Android Emulator in Android Studio).");
     }
 
     console.log("");
@@ -65,13 +64,13 @@ async function runDeviceServer(): Promise<void> {
     console.log("  POST /api/queue");
     console.log("  POST /api/role/toggle");
     console.log("==================================================");
-    console.log("Server running. Press Ctrl+C to stop.");
+    console.log("Bridge running. Press Ctrl+C to disconnect.");
 
     let isStopping = false;
     const stopServer = async () => {
       if (isStopping) return;
       isStopping = true;
-      console.log("\nStopping Vecta Companion Server...");
+      console.log("\nDisconnecting device bridge...");
       try {
         await deviceBridge.removeAdbReverse(port);
         if (engineBridge.isRunning()) {
@@ -84,7 +83,6 @@ async function runDeviceServer(): Promise<void> {
         // Ignore stream disconnect on process termination
       }
       engineBridge.stop();
-      shutdownOllamaServer();
       process.exit(0);
     };
 
@@ -94,13 +92,13 @@ async function runDeviceServer(): Promise<void> {
     // Keep process alive indefinitely
     await new Promise(() => {});
   } catch (err: any) {
-    console.error("Companion server failed:", err.message);
+    console.error("Device bridge failed:", err.message);
     engineBridge.stop();
     process.exit(1);
   }
 }
 
-// Check status of companion server and connected devices via HTTP & ADB
+// Check status of device bridge and connected phone via HTTP & ADB
 async function checkDeviceStatus(): Promise<void> {
   try {
     const [res, devices] = await Promise.all([
@@ -109,35 +107,34 @@ async function checkDeviceStatus(): Promise<void> {
     ]);
 
     console.log("==================================================");
-    console.log("Vecta Companion Device Status");
+    console.log("Vecta Device Bridge Status");
     console.log("==================================================");
 
     if (res && res.ok) {
       const data = (await res.json()) as any;
       console.log(`Server:      ACTIVE on http://127.0.0.1:${data.port || 8765} (Loopback only - zero Wi-Fi)`);
-      console.log(`Clients:     ${data.clientsCount || 0} active connection(s)`);
     } else {
-      console.log("Server:      STOPPED (Run 'vecta device' to start)");
+      console.log("Server:      STOPPED (Run 'vecta device connect' to activate)");
     }
 
     if (devices.length > 0) {
-      console.log(`USB Devices (${devices.length}):`);
+      console.log(`Connected Devices (${devices.length}):`);
       for (const d of devices) {
-        const typeLabel = d.isEmulator ? "Android Emulator" : "Physical Device";
+        const typeLabel = d.isEmulator ? "Android Emulator" : "Connected Phone";
         const modelLabel = d.model || d.product || "Android Phone";
         console.log(`  * ${modelLabel} (${typeLabel}, serial: ${d.serial}, status: ${d.state})`);
       }
     } else {
-      console.log("USB Devices: None detected. (Plug in phone via USB with USB Debugging enabled)");
+      console.log("Connected Devices: None detected. (Plug in phone via USB with USB Debugging enabled)");
     }
     console.log("==================================================");
   } catch {
-    console.log("Companion device server is NOT running. Run 'vecta device' to launch it.");
+    console.log("Device bridge is not running. Run 'vecta device connect' to activate it.");
   }
   process.exit(0);
 }
 
-// Cleanly stop the companion device server
+// Cleanly disconnect the device bridge
 async function stopDeviceServer(): Promise<void> {
   initVectaStorage();
   try {
@@ -145,11 +142,9 @@ async function stopDeviceServer(): Promise<void> {
     await deviceBridge.removeAdbReverse(8765);
     await engineBridge.deviceServerStop();
     engineBridge.stop();
-    shutdownOllamaServer();
-    console.log("Companion device server and background inference servers stopped.");
+    console.log("Disconnected phone. USB bridge closed.");
   } catch {
-    shutdownOllamaServer();
-    console.log("Companion device server is already stopped.");
+    console.log("Device bridge is already disconnected.");
   }
   process.exit(0);
 }
@@ -171,31 +166,30 @@ Vecta CLI - Autonomous Pair Programmer
 
 Usage:
   vecta                     Launch interactive TUI terminal interface
-  vecta device [run|start]  Run companion device server & reverse tunnel (USB / emulator)
-  vecta device status       Check companion device & server status
-  vecta device stop         Stop companion device server
-  vecta server <cmd>        Alias for 'vecta device'
+  vecta device              List connected phone and USB tunnel status
+  vecta device connect      Connect phone over USB tunnel (127.0.0.1:8765)
+  vecta device disconnect   Disconnect phone and close USB tunnel
+  vecta device status       Show status of connected phone and USB tunnel
   vecta --version, -v       Print Vecta version
   vecta --help, -h          Show this help message
 `);
     process.exit(0);
   }
 
-  // CLI Subcommand: vecta device [run|start|status|stop] or vecta server [run|start|status|stop]
-  if (args[0] === "device" || args[0] === "server") {
-    const sub = args[1] || "run";
-    if (sub === "status") {
-      await checkDeviceStatus();
-      return;
-    }
-    if (sub === "run" || sub === "start") {
+  // CLI Subcommand: vecta device [connect|disconnect|status]
+  if (args[0] === "device") {
+    const sub = args[1]?.toLowerCase();
+    if (sub === "connect" || sub === "start" || sub === "run") {
       await runDeviceServer();
       return;
     }
-    if (sub === "stop") {
+    if (sub === "disconnect" || sub === "stop") {
       await stopDeviceServer();
       return;
     }
+    // 'vecta device' or 'vecta device status' lists connected phone & status
+    await checkDeviceStatus();
+    return;
   }
 
   // If launching interactive TUI without a TTY, exit gracefully instead of throwing raw mode error

@@ -227,6 +227,19 @@
 - **Status:** **Synchronized for Testing.** Executed `ollama cp llama3.2:3b vecta-default:latest` so that fallback calls to `vecta-default:latest` execute the fast 2.0 GB 3B model.
 - **Post-Testing Action:** Decouple the hardcoded model copy. Implement a first-boot model selection wizard or an explicit user setting in `/settings` that binds `vecta-default` dynamically according to the user's hardware tier (3B for ≤8GB RAM, 8B for 16GB, 14B+ for 32GB+).
 
+### DEBT-004 (Reliability): Device Bridge CLI Workflow Polish & Robust Exception Handling
+- **Files Affected:** `source/interface/src/services/device-bridge.ts`, `source/interface/src/app.tsx`, `source/engine/device/device.go`
+- **Context:** Mobile device bridge field testing on physical hardware (OnePlus Nord N100) and Android emulators.
+- **Symptom:** Disconnecting the USB cable mid-session, ADB daemon state changes, or missed USB debugging authorization prompts can occasionally cause silent disconnects, socket retries, or command delays in the CLI.
+- **Status:** **Identified for Systemic Polish.**
+- **Action Required:**
+  1. **Frictionless CLI Experience for All Users:** Ensure the `/device connect`, `/device disconnect`, and `/device` workflow is completely intuitive, with crystal-clear console guidance when USB Debugging is disabled or pending authorization on the phone.
+  2. **Comprehensive Exception Shielding:** Wrap all ADB subprocess executions and HTTP bridge communications with fail-safe error boundaries. A sudden physical unplug must never throw unhandled promise rejections or destabilize the desktop terminal TUI.
+  3. **Auto-Recovery & Reconnect Window:** Implement a 10-second grace window upon USB disconnect that pauses active task queue dispatches and resumes automatically when the cable is re-seated.
+  4. **Self-Healing ADB Tunnel Daemon:** Automatically detect stale `adb reverse` forwardings and re-establish port mappings on reconnect without requiring manual user commands.
+  5. **Single-Plug Wireless ADB Link:** Implement automatic switch to wireless debugging (`adb tcpip 5555` -> `adb connect <device-ip>:5555`) so developers can plug in via USB once to pair, disconnect the cable, and continue monitoring and driving Vecta completely wirelessly over the local network without dropping the active session.
+
+
 
 
 

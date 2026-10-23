@@ -12,6 +12,7 @@ Coming soon.
 
 - `interface/` — TypeScript terminal UI (Ink + React)
 - `engine/` — Go systems binary (hardware scan, queue, crypto, device)
+- `device/` — Flutter mobile connected phone application (Android)
 - `roles/` — Role definitions and prompt interfaces
 - `state/` — Central TypeScript state managers
 - `docs/` — Architecture and reference docs

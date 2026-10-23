@@ -388,13 +388,13 @@
 - **Llama 3.1 8B / Vecta Default Fallback (Strict Disk Presence Law):**
   - Enforced Day 19 law: routes unassigned or failing local roles to `vecta-default:latest` or `llama3.1:8b` strictly only if present on disk / in Ollama.
   - If not downloaded or external drive is unmounted, returns clean actionable advisory: `[Model Offline]: Local model '...' was not detected on disk. Please connect your external model drive (e.g. Seagate D:\), start Ollama, or configure a cloud API key in /roles.`
-- **Go Companion Device Server (`source/engine/device/device.go`, `source/engine/main.go`):**
+- **Go Device Server (`source/engine/device/device.go`, `source/engine/main.go`):**
   - Implemented HTTP server bound strictly to `127.0.0.1:8765` (never `0.0.0.0`, never Wi-Fi per Sprint Plan §3 security boundaries).
   - Endpoints: `GET /health`, `GET /status`, `GET /api/state`, `GET /api/chat`, `GET /api/queue`, `POST /api/role/toggle`, `POST /api/prompt`.
-  - Supports background state pushing (`device_server_update`) and drains remote control actions (role toggles, prompt syncs) for companion synchronization.
+  - Supports background state pushing (`device_server_update`) and drains remote control actions (role toggles, prompt syncs) for connected phone synchronization.
 - **Device Bridge Service & ADB Reverse Tunnel (`source/interface/src/services/device-bridge.ts`, `source/interface/src/app.tsx`):**
-  - Added `DeviceBridge` service in TypeScript managing `adb reverse tcp:8765 tcp:8765` tunnel to Android emulator.
-  - On-Demand Companion Server Control: server does not run automatically on launch; starts on demand via `/server start` or `/server run` in chat, or `vecta server run` in the terminal.
+  - Added `DeviceBridge` service in TypeScript managing `adb reverse tcp:8765 tcp:8765` tunnel to Android emulator and connected phones.
+  - On-Demand Device Server Control: server starts on demand via `/device connect` or runs during USB auto-probe.
   - In-app slash commands `/server start`, `/server status`, and `/server stop` registered in autocomplete dropdown and `/help`.
   - Background periodic state push syncing active chat messages, queue tasks, and worker roles.
 - **Cross-Platform Global `vecta` CLI Command & Robust Engine Resolution:**
@@ -402,7 +402,7 @@
   - Windows PowerShell launcher: `bin/vecta.ps1`.
   - macOS & Linux POSIX bash launcher: `bin/vecta`.
   - Registered npm package `"bin": { "vecta": "./bin/vecta.js" }` in `source/interface/package.json` for global execution via `npm link`.
-  - Fixed global execution binary discovery via symlink-aware `fs.realpathSync`, `import.meta.url` real directory resolution, and bundling `vecta-engine.exe` into `dist/` and `bin/`. Running `vecta` from user home (`C:\Users\Jayden Murillo`) or any arbitrary working directory works seamlessly.
+  - Fixed global execution binary discovery via symlink-aware `fs.realpathSync`, `import.meta.url` real directory resolution, and bundling `vecta-engine.exe` into `dist/` and `bin/`. Running `vecta` from user home (`%USERPROFILE%` or `~/`) or any arbitrary working directory works seamlessly.
   - Terminal CLI commands: `vecta server run|start`, `vecta server status`, `vecta server stop`, `vecta --version`, and `vecta --help`.
   - Added graceful non-TTY detection preventing Ink raw mode errors in non-interactive environments.
 - **Quality Assurance & Verification:**
@@ -412,4 +412,47 @@
   - TypeScript compilation (`tsc --noEmit`): clean exit 0.
   - Production bundle build (`esbuild`): generated `dist/main.js` (1.8MB) with 0 errors.
   - Strict zero-emoji compliance.
+
+### v0.0.20 — October 23, 2026
+#### Added
+- **Flutter Connected Phone Application (`source/device/`):**
+  - Renamed package and root directory from `source/companion` to `source/device` and updated `pubspec.yaml` (`name: device`).
+  - Completely rebranded terminology from "companion" to "connected phone / connected device" across all code, tests, and documentation.
+  - Decomposed monolithic `main.dart` into decoupled components adhering to Flutter best practices with comprehensive comments:
+    - `constants/theme.dart`: Design system tokens (`#0B0F19`, `#1E293B`, `#334155`, `#00E5FF`), role color palette, and dynamic theme parser supporting live color synchronization with CLI `/settings`.
+    - `models/device_state.dart`: Typed data models (`ChatMessage`, `TaskItem`, `RoleItem`, `DeviceState`) with null-safe JSON parsing and fallback workforce roles.
+    - `services/device_api.dart`: Network layer handling dual-loopback auto-discovery (`127.0.0.1` reverse tunnel vs `10.0.2.2` emulator alias), non-blocking state polling, remote prompt submission, and role toggle dispatch.
+    - `components/status_bar.dart`: Top app bar showing connection dot, version badge, active host, latency timestamp, and generating badge.
+    - `components/generating_indicator.dart`: Dedicated animated banner displaying active role and generating indicator (e.g. `CODER IS GENERATING A RESPONSE...`).
+    - `views/chat_tab.dart`: Monospace chat list, role sender pills, generating indicator dock, and optimistic prompt input bar.
+    - `views/tasks_tab.dart`: Pipeline checklist with metrics summary (Total, In Progress, Pending, Completed) and task status cards.
+    - `views/roles_tab.dart`: Workforce roster with role avatar, model badge (`llama3.2:3b`), and instant toggle switches.
+    - `screens/home_screen.dart`: Root controller coordinating polling intervals, tab switching, and optimistic state dispatch.
+    - `main.dart`: Clean entry point initializing `VectaDeviceApp` and root theme.
+  - Active role generation status indicator: status bar and chat tab display real-time feedback when any role is executing.
+  - Enforced strictly zero emojis across all code, tests, and documentation.
+- **Physical Phone Hardware Testing & Deployment:**
+  - Deployed and validated debug APK directly to physical Android hardware.
+  - Verified ADB reverse tunnel `tcp:8765`, `/health`, `/api/state`, and bidirectional prompt & role toggle synchronization.
+- **CLI Device Command Streamlining & Hot-Plug Auto-Probe:**
+  - Replaced sprawling `/server` commands with streamlined device slash commands:
+    - `/device connect`: Starts bridge server & maps ADB reverse for all connected devices.
+    - `/device disconnect`: Removes reverse tunnel & cleanly stops bridge server.
+    - `/device` / `/device status`: Lists connected phone (model, serial, state) and USB tunnel status.
+  - Implemented background hot-plug auto-probe in `app.tsx` polling every ~4.5s that detects newly connected USB phones and automatically configures `adb reverse tcp:8765 tcp:8765`.
+- **Go Engine Device Server Enhancements (`source/engine/device/device.go`):**
+  - Extended `/api/chat` endpoint to handle both `GET` (state streaming) and `POST` (remote prompt submissions).
+  - Bidirectional remote action queueing: remote prompts and role toggles are buffered and drained cleanly into desktop CLI execution loops.
+- **Technical Debt & Improvements Documentation:**
+  - Added `DEBT-004` to `source/docs/debugging.md` documenting device bridge CLI workflow polish, comprehensive exception shielding, self-healing reverse tunnels, and single-plug wireless pairing.
+  - Added Improvements 32, 33, 34, 35 to `source/docs/improvements.md` (connected phone rebranding & modular architecture, CLI `/settings` theme sync, task queue reactivity overhaul, and single-plug wireless device link).
+- **Quality Assurance & Verification:**
+  - Automated test suite `source/interface/src/testing/test-oct23-android-companion.ts` (4/4 passed).
+  - Flutter connected phone widget test `source/device/test/widget_test.dart` (100% pass).
+  - Flutter static analysis `flutter analyze`: 0 issues found.
+  - Built debug APK `build/app/outputs/flutter-apk/app-debug.apk` successfully.
+  - Interface production bundle build (`esbuild`): generated `dist/main.js` (1.8MB) with 0 errors.
+  - All regression suites pass: `test:oct22`, `test:oct21`, `test:queue`.
+  - Strict zero-emoji compliance across code, logs, and documentation.
+
 

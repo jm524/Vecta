@@ -20,6 +20,8 @@ type ServerState struct {
 	Messages     json.RawMessage `json:"messages"`
 	Tasks        json.RawMessage `json:"tasks"`
 	Roles        json.RawMessage `json:"roles,omitempty"`
+	IsProcessing bool            `json:"isProcessing"`
+	ActiveRole   string          `json:"activeRole,omitempty"`
 	UpdatedAt    string          `json:"updatedAt"`
 }
 
@@ -140,7 +142,7 @@ func (s *Server) Port() int {
 }
 
 // UpdateState updates the cached messages and queue tasks to be served to the companion app.
-func (s *Server) UpdateState(chatID string, messagesJSON, tasksJSON, rolesJSON []byte) {
+func (s *Server) UpdateState(chatID string, messagesJSON, tasksJSON, rolesJSON []byte, isProcessing bool, activeRole string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -156,6 +158,8 @@ func (s *Server) UpdateState(chatID string, messagesJSON, tasksJSON, rolesJSON [
 	if len(rolesJSON) > 0 {
 		s.state.Roles = json.RawMessage(rolesJSON)
 	}
+	s.state.IsProcessing = isProcessing
+	s.state.ActiveRole = activeRole
 	s.state.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 }
 
@@ -213,6 +217,39 @@ func (s *Server) handleGetState(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetChat(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		var payload struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+			Prompt  string `json:"prompt"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, fmt.Sprintf("invalid payload: %v", err), http.StatusBadRequest)
+			return
+		}
+		text := payload.Content
+		if text == "" {
+			text = payload.Prompt
+		}
+		role := payload.Role
+		if role == "" {
+			role = "user"
+		}
+		s.mu.Lock()
+		s.promptSyncs = append(s.promptSyncs, map[string]interface{}{
+			"role":      role,
+			"prompt":    text,
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		})
+		s.mu.Unlock()
+
+		s.writeJSON(w, http.StatusOK, map[string]interface{}{
+			"success": true,
+			"message": "Chat message queued",
+		})
+		return
+	}
+
 	s.mu.RLock()
 	msg := s.state.Messages
 	s.mu.RUnlock()

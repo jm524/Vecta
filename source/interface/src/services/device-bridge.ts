@@ -52,6 +52,31 @@ export class DeviceBridge {
     return data;
   }
 
+  // Connects the device bridge: starts the server and sets up ADB reverse for all connected devices.
+  public async connect(port: number = 8765): Promise<{ running: boolean; devices: ConnectedAdbDevice[]; adbReversed: boolean }> {
+    this.port = port;
+    const resp = await engineBridge.deviceServerStart(port);
+    const [devices, adbReversed] = await Promise.all([
+      this.listAdbDevices(),
+      this.setupAdbReverse(port),
+    ]);
+
+    return {
+      running: resp.success,
+      devices,
+      adbReversed,
+    };
+  }
+
+  // Disconnects the device bridge: removes reverse tunnel and stops server.
+  public async disconnect(port: number = 8765): Promise<boolean> {
+    this.stopPeriodicSync();
+    await this.removeAdbReverse(port);
+    const resp = await engineBridge.deviceServerStop();
+    this.isAdbReversed = false;
+    return resp.success;
+  }
+
   // Stops the companion device server.
   public async stopServer(): Promise<DeviceServerStatusResult> {
     this.stopPeriodicSync();
@@ -82,45 +107,64 @@ export class DeviceBridge {
     };
   }
 
-  // Pushes the latest state (chat messages, queue tasks, roles) to the device server
+  // Pushes the latest state (chat messages, queue tasks, roles, active generating status) to the device server
   // and returns any remote actions (toggles, prompt updates) sent by companion devices.
   public async syncState(payload: {
     chatId?: string;
     messages?: any[];
     tasks?: any[];
     roles?: any[];
+    isProcessing?: boolean;
+    activeRole?: string;
   }): Promise<DeviceServerUpdateResult> {
     const resp = await engineBridge.deviceServerUpdate(payload);
     return resp.data || { success: resp.success };
   }
 
-  // Executes 'adb reverse tcp:port tcp:port' to forward the emulator's localhost port to the host.
+  // Executes 'adb reverse tcp:port tcp:port' to forward the companion device's localhost port to the host.
   public async setupAdbReverse(port: number = 8765): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
-      try {
-        const adb = spawn("adb", ["reverse", `tcp:${port}`, `tcp:${port}`], {
-          stdio: "pipe",
-        });
-
-        adb.on("error", () => {
+    const devices = await this.listAdbDevices();
+    if (devices.length === 0) {
+      return new Promise<boolean>((resolve) => {
+        try {
+          const adb = spawn("adb", ["reverse", `tcp:${port}`, `tcp:${port}`], {
+            stdio: "pipe",
+          });
+          adb.on("error", () => {
+            this.isAdbReversed = false;
+            resolve(false);
+          });
+          adb.on("close", (code) => {
+            this.isAdbReversed = code === 0;
+            resolve(code === 0);
+          });
+          setTimeout(() => resolve(this.isAdbReversed), 2500);
+        } catch {
           this.isAdbReversed = false;
           resolve(false);
-        });
+        }
+      });
+    }
 
-        adb.on("close", (code) => {
-          this.isAdbReversed = code === 0;
-          resolve(code === 0);
-        });
+    let anySuccess = false;
+    for (const dev of devices) {
+      const ok = await new Promise<boolean>((resolve) => {
+        try {
+          const adb = spawn("adb", ["-s", dev.serial, "reverse", `tcp:${port}`, `tcp:${port}`], {
+            stdio: "pipe",
+          });
+          adb.on("error", () => resolve(false));
+          adb.on("close", (code) => resolve(code === 0));
+          setTimeout(() => resolve(false), 2500);
+        } catch {
+          resolve(false);
+        }
+      });
+      if (ok) anySuccess = true;
+    }
 
-        // Set a 3-second safety timeout so missing adb never hangs
-        setTimeout(() => {
-          resolve(this.isAdbReversed);
-        }, 3000);
-      } catch {
-        this.isAdbReversed = false;
-        resolve(false);
-      }
-    });
+    this.isAdbReversed = anySuccess;
+    return anySuccess;
   }
 
   // Lists all connected Android devices and emulators recognized by ADB.

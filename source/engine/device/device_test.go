@@ -56,7 +56,7 @@ func TestDeviceServerLifecycle(t *testing.T) {
 	// 2. Test State Update & Retrieval
 	testMessages := `[{"id":"1","sender":"User","text":"Hello Vecta"}]`
 	testTasks := `[{"taskId":"task-1","role":"Coder","status":"running"}]`
-	srv.UpdateState("chat-123", []byte(testMessages), []byte(testTasks), nil)
+	srv.UpdateState("chat-123", []byte(testMessages), []byte(testTasks), nil, true, "Coder")
 
 	respState, err := http.Get(baseURL + "/api/state")
 	if err != nil {
