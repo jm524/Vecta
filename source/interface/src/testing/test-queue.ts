@@ -18,6 +18,7 @@ async function runQueueTest(): Promise<void> {
       prompt: "Implement auth token endpoint",
       filePaths: ["source/engine/"],
       fileBoundaries: ["source/"],
+      simulatedOutput: "AUTH_ENDPOINT_READY: Token endpoint configured.",
     },
     {
       taskId: "task-02",
@@ -26,6 +27,7 @@ async function runQueueTest(): Promise<void> {
       prompt: "Verify token signing key security",
       filePaths: ["source/engine/"],
       fileBoundaries: ["source/"],
+      simulatedOutput: "SECURITY_PASSED: HMAC key integrity verified.",
     },
     {
       taskId: "task-03",
@@ -34,6 +36,7 @@ async function runQueueTest(): Promise<void> {
       prompt: "Record audit log entry",
       filePaths: ["source/.vecta/"],
       fileBoundaries: ["source/"],
+      simulatedOutput: "DOCUMENTER_LOGGED: Audit entry written.",
     },
   ];
 

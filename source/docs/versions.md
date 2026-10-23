@@ -380,10 +380,36 @@
   - Strict zero-emoji compliance across code, logs, and docs.
 
 ### v0.0.19 — October 22, 2026
-#### In Progress
-- **Day 19: Real Inference & Device Server:**
-  - Real model inference engine: HTTP calls to Ollama (`127.0.0.1:11434`) and cloud endpoints with streaming output.
-  - Vecta default fallback: route tasks to `llama3.1:8b` / `vecta-default` strictly only if present on disk; otherwise prompt user to select a cloud model or install Ollama.
-  - Cross-platform global `vecta` CLI command (Windows, macOS, Linux).
-  - Go device server (`127.0.0.1`) and `adb reverse` tunnel binding for Android client companion.
+#### Added
+- **Real Model Inference Engine (`source/engine/models/inference.go`, `source/engine/queue/queue.go`):**
+  - Implemented `models.Client` connecting Go task runner directly to local Ollama on `127.0.0.1:11434` and OpenAI-compatible cloud endpoints.
+  - Extracts real token counts from Ollama response (`eval_count` and `prompt_eval_count`) and cloud response `usage.total_tokens`.
+  - Seamlessly passes prompt stack through real inference while preserving deterministic testing when `simulatedOutput` is set.
+- **Llama 3.1 8B / Vecta Default Fallback (Strict Disk Presence Law):**
+  - Enforced Day 19 law: routes unassigned or failing local roles to `vecta-default:latest` or `llama3.1:8b` strictly only if present on disk / in Ollama.
+  - If not downloaded or external drive is unmounted, returns clean actionable advisory: `[Model Offline]: Local model '...' was not detected on disk. Please connect your external model drive (e.g. Seagate D:\), start Ollama, or configure a cloud API key in /roles.`
+- **Go Companion Device Server (`source/engine/device/device.go`, `source/engine/main.go`):**
+  - Implemented HTTP server bound strictly to `127.0.0.1:8765` (never `0.0.0.0`, never Wi-Fi per Sprint Plan §3 security boundaries).
+  - Endpoints: `GET /health`, `GET /status`, `GET /api/state`, `GET /api/chat`, `GET /api/queue`, `POST /api/role/toggle`, `POST /api/prompt`.
+  - Supports background state pushing (`device_server_update`) and drains remote control actions (role toggles, prompt syncs) for companion synchronization.
+- **Device Bridge Service & ADB Reverse Tunnel (`source/interface/src/services/device-bridge.ts`, `source/interface/src/app.tsx`):**
+  - Added `DeviceBridge` service in TypeScript managing `adb reverse tcp:8765 tcp:8765` tunnel to Android emulator.
+  - On-Demand Companion Server Control: server does not run automatically on launch; starts on demand via `/server start` or `/server run` in chat, or `vecta server run` in the terminal.
+  - In-app slash commands `/server start`, `/server status`, and `/server stop` registered in autocomplete dropdown and `/help`.
+  - Background periodic state push syncing active chat messages, queue tasks, and worker roles.
+- **Cross-Platform Global `vecta` CLI Command & Robust Engine Resolution:**
+  - Windows Command Prompt launcher: `bin/vecta.cmd`.
+  - Windows PowerShell launcher: `bin/vecta.ps1`.
+  - macOS & Linux POSIX bash launcher: `bin/vecta`.
+  - Registered npm package `"bin": { "vecta": "./bin/vecta.js" }` in `source/interface/package.json` for global execution via `npm link`.
+  - Fixed global execution binary discovery via symlink-aware `fs.realpathSync`, `import.meta.url` real directory resolution, and bundling `vecta-engine.exe` into `dist/` and `bin/`. Running `vecta` from user home (`C:\Users\Jayden Murillo`) or any arbitrary working directory works seamlessly.
+  - Terminal CLI commands: `vecta server run|start`, `vecta server status`, `vecta server stop`, `vecta --version`, and `vecta --help`.
+  - Added graceful non-TTY detection preventing Ink raw mode errors in non-interactive environments.
+- **Quality Assurance & Verification:**
+  - Created automated test suite `source/interface/src/testing/test-oct22-inference-device.ts` (4/4 passed).
+  - Created Go unit test suites `source/engine/device/device_test.go` and `source/engine/models/inference_test.go` (100% pass).
+  - All regression suites pass: `test:oct21` (5/5), `test-queue-tokens.ts` (100%), Go `crypto_test.go`, Go `queue_test.go`.
+  - TypeScript compilation (`tsc --noEmit`): clean exit 0.
+  - Production bundle build (`esbuild`): generated `dist/main.js` (1.8MB) with 0 errors.
+  - Strict zero-emoji compliance.
 

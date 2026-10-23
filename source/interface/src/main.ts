@@ -2,6 +2,7 @@ import React from "react";
 import { render } from "ink";
 import { App } from "./app.js";
 import { engineBridge } from "./bridge/client.js";
+import { deviceBridge } from "./services/device-bridge.js";
 import { initVectaStorage } from "./helpers/paths.js";
 import {
   initKeyboardMonitor,
@@ -9,22 +10,219 @@ import {
   isPhysicalShiftActive,
   isPhysicalCtrlActive,
 } from "./helpers/keyboard.js";
+import { shutdownOllamaServer, ensureOllamaRunning } from "./helpers/process.js";
 
-// main is the very first function that runs when you start Vecta.
-async function main(): Promise<void> {
-  // Make sure the local .vecta data folders exist before doing anything else.
+// Standalone runner for companion device server (CLI command: vecta device [run|start] or vecta server [run|start])
+async function runDeviceServer(): Promise<void> {
   initVectaStorage();
 
-  // Initialize keyboard monitor for physical modifier detection
-  initKeyboardMonitor();
-
-  // Start the Go engine background process.
   try {
     engineBridge.start();
   } catch (err: any) {
     console.error("Failed to start Go engine:", err.message);
     process.exit(1);
   }
+
+  try {
+    const port = 8765;
+    await engineBridge.deviceServerStart(port);
+    const [adbOk, devices] = await Promise.all([
+      deviceBridge.setupAdbReverse(port),
+      deviceBridge.listAdbDevices(),
+    ]);
+
+    console.log("==================================================");
+    console.log("Vecta Companion Device Server");
+    console.log("==================================================");
+    console.log(`Status:      Active on http://127.0.0.1:${port}`);
+    console.log("Security:    Strict loopback only (strictly local USB, zero Wi-Fi)");
+
+    if (devices.length > 0) {
+      console.log(`Connected Devices (${devices.length}):`);
+      for (const d of devices) {
+        const typeLabel = d.isEmulator ? "Android Emulator" : "Physical Device";
+        const modelLabel = d.model || d.product || "Android Phone";
+        console.log(`  * ${modelLabel} (${typeLabel}, serial: ${d.serial}, state: ${d.state})`);
+      }
+      console.log(`ADB Reverse: Active (tcp:${port} -> tcp:${port} established)`);
+    } else {
+      console.log("Connected Devices: None detected via USB.");
+      console.log(`ADB Reverse: ${adbOk ? "Active (standby)" : "Standby (Waiting for USB connection)"}`);
+      console.log("");
+      console.log("To connect your phone or emulator:");
+      console.log("  1. Plug in your Android phone via USB cable.");
+      console.log("  2. In Android Settings -> Developer Options -> turn ON 'USB Debugging'.");
+      console.log("  3. Tap 'Allow' when the prompt appears on your phone.");
+      console.log("  (Or launch an Android Emulator in Android Studio).");
+    }
+
+    console.log("");
+    console.log("Endpoints:");
+    console.log("  GET  /health");
+    console.log("  GET  /status");
+    console.log("  GET  /api/state");
+    console.log("  POST /api/chat");
+    console.log("  POST /api/queue");
+    console.log("  POST /api/role/toggle");
+    console.log("==================================================");
+    console.log("Server running. Press Ctrl+C to stop.");
+
+    let isStopping = false;
+    const stopServer = async () => {
+      if (isStopping) return;
+      isStopping = true;
+      console.log("\nStopping Vecta Companion Server...");
+      try {
+        await deviceBridge.removeAdbReverse(port);
+        if (engineBridge.isRunning()) {
+          await Promise.race([
+            engineBridge.deviceServerStop(),
+            new Promise((_, r) => setTimeout(() => r(new Error("timeout")), 600)),
+          ]);
+        }
+      } catch {
+        // Ignore stream disconnect on process termination
+      }
+      engineBridge.stop();
+      shutdownOllamaServer();
+      process.exit(0);
+    };
+
+    process.on("SIGINT", stopServer);
+    process.on("SIGTERM", stopServer);
+
+    // Keep process alive indefinitely
+    await new Promise(() => {});
+  } catch (err: any) {
+    console.error("Companion server failed:", err.message);
+    engineBridge.stop();
+    process.exit(1);
+  }
+}
+
+// Check status of companion server and connected devices via HTTP & ADB
+async function checkDeviceStatus(): Promise<void> {
+  try {
+    const [res, devices] = await Promise.all([
+      fetch("http://127.0.0.1:8765/status").catch(() => null),
+      deviceBridge.listAdbDevices(),
+    ]);
+
+    console.log("==================================================");
+    console.log("Vecta Companion Device Status");
+    console.log("==================================================");
+
+    if (res && res.ok) {
+      const data = (await res.json()) as any;
+      console.log(`Server:      ACTIVE on http://127.0.0.1:${data.port || 8765} (Loopback only - zero Wi-Fi)`);
+      console.log(`Clients:     ${data.clientsCount || 0} active connection(s)`);
+    } else {
+      console.log("Server:      STOPPED (Run 'vecta device' to start)");
+    }
+
+    if (devices.length > 0) {
+      console.log(`USB Devices (${devices.length}):`);
+      for (const d of devices) {
+        const typeLabel = d.isEmulator ? "Android Emulator" : "Physical Device";
+        const modelLabel = d.model || d.product || "Android Phone";
+        console.log(`  * ${modelLabel} (${typeLabel}, serial: ${d.serial}, status: ${d.state})`);
+      }
+    } else {
+      console.log("USB Devices: None detected. (Plug in phone via USB with USB Debugging enabled)");
+    }
+    console.log("==================================================");
+  } catch {
+    console.log("Companion device server is NOT running. Run 'vecta device' to launch it.");
+  }
+  process.exit(0);
+}
+
+// Cleanly stop the companion device server
+async function stopDeviceServer(): Promise<void> {
+  initVectaStorage();
+  try {
+    engineBridge.start();
+    await deviceBridge.removeAdbReverse(8765);
+    await engineBridge.deviceServerStop();
+    engineBridge.stop();
+    shutdownOllamaServer();
+    console.log("Companion device server and background inference servers stopped.");
+  } catch {
+    shutdownOllamaServer();
+    console.log("Companion device server is already stopped.");
+  }
+  process.exit(0);
+}
+
+// main is the very first function that runs when you start Vecta.
+async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+
+  // CLI Flag: --version or -v
+  if (args.includes("--version") || args.includes("-v")) {
+    console.log("Vecta v0.1.0");
+    process.exit(0);
+  }
+
+  // CLI Flag: --help or -h
+  if (args.includes("--help") || args.includes("-h") || args[0] === "help") {
+    console.log(`
+Vecta CLI - Autonomous Pair Programmer
+
+Usage:
+  vecta                     Launch interactive TUI terminal interface
+  vecta device [run|start]  Run companion device server & reverse tunnel (USB / emulator)
+  vecta device status       Check companion device & server status
+  vecta device stop         Stop companion device server
+  vecta server <cmd>        Alias for 'vecta device'
+  vecta --version, -v       Print Vecta version
+  vecta --help, -h          Show this help message
+`);
+    process.exit(0);
+  }
+
+  // CLI Subcommand: vecta device [run|start|status|stop] or vecta server [run|start|status|stop]
+  if (args[0] === "device" || args[0] === "server") {
+    const sub = args[1] || "run";
+    if (sub === "status") {
+      await checkDeviceStatus();
+      return;
+    }
+    if (sub === "run" || sub === "start") {
+      await runDeviceServer();
+      return;
+    }
+    if (sub === "stop") {
+      await stopDeviceServer();
+      return;
+    }
+  }
+
+  // If launching interactive TUI without a TTY, exit gracefully instead of throwing raw mode error
+  if (!process.stdin.isTTY) {
+    console.error("Vecta interactive terminal requires a TTY.\nRun 'vecta' inside a real terminal (PowerShell, Windows Terminal, or cmd.exe).\nUse 'vecta --help' for CLI options.");
+    process.exit(1);
+  }
+
+  // Make sure the local .vecta data folders exist before doing anything else.
+  initVectaStorage();
+
+  // Ensure Ollama server is running in the background with external model drive (D:\)
+  await ensureOllamaRunning().catch(() => {});
+
+  // Start the Go engine background process and pre-warm it with ping and cryptoInit
+  // BEFORE switching screen buffer or rendering Ink, so the CLI opens instantly ready to chat!
+  try {
+    engineBridge.start();
+    await engineBridge.ping();
+    await engineBridge.cryptoInit();
+  } catch (err: any) {
+    console.error("Failed to initialize Go engine:", err.message);
+    process.exit(1);
+  }
+
+  // Initialize keyboard monitor for physical modifier detection
+  initKeyboardMonitor();
 
 /**
  * Filters raw stdin data before Node's readline parser breaks it apart:
@@ -133,20 +331,17 @@ process.stdout.write("\x1b[?1049h\x1b[>4;2m\x1b[>1u\x1b[?1007l\x1b[?1000h\x1b[?1
 
 const restoreStdin = setupStdinFilter();
 
-// Make sure we stop the Go engine cleanly, restore normal terminal, and stop keyboard monitor.
+// Make sure we stop the Go engine cleanly, shut down Ollama server, restore normal terminal, and stop keyboard monitor.
 const cleanup = () => {
   restoreStdin();
   stopKeyboardMonitor();
   // Restore normal keyboard (pop Kitty flags \x1b[<1u), disable mouse tracking, restore main screen buffer
   process.stdout.write("\x1b[>4;0m\x1b[<1u\x1b[?1000l\x1b[?1006l\x1b[?1007h\x1b[?1049l");
   engineBridge.stop();
+  shutdownOllamaServer();
 };
 
   process.on("exit", cleanup);
-  process.on("SIGINT", () => {
-    cleanup();
-    process.exit(0);
-  });
   process.on("SIGTERM", () => {
     cleanup();
     process.exit(0);

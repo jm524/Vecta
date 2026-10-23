@@ -13,11 +13,15 @@ import (
 
 	"github.com/vecta-cli/engine/bridge"
 	"github.com/vecta-cli/engine/crypto"
+	"github.com/vecta-cli/engine/device"
 	"github.com/vecta-cli/engine/queue"
 	"github.com/vecta-cli/engine/scanner"
 )
 
-var queueRunner = queue.NewRunner()
+var (
+	queueRunner  = queue.NewRunner()
+	deviceServer = device.NewServer(device.DefaultPort)
+)
 
 func main() {
 	// A scanner reads input line by line from TypeScript.
@@ -260,6 +264,84 @@ func handleRequest(req bridge.Request) {
 			Data: bridge.CryptoSecretResult{
 				Key:     payload.Key,
 				Success: true,
+			},
+		}
+		sendJSON(resp)
+
+	case "device_server_start":
+		// Start companion device server on 127.0.0.1:port
+		if len(req.Payload) > 0 {
+			var payload bridge.DeviceServerStartPayload
+			if err := json.Unmarshal(req.Payload, &payload); err == nil && payload.Port > 0 {
+				if deviceServer.IsRunning() {
+					_ = deviceServer.Stop()
+				}
+				deviceServer = device.NewServer(payload.Port)
+			}
+		}
+		if err := deviceServer.Start(); err != nil {
+			sendError(req.ID, fmt.Sprintf("device server start failed: %v", err))
+			return
+		}
+		resp := bridge.Response{
+			ID:      req.ID,
+			Success: true,
+			Data: bridge.DeviceServerStatusResult{
+				Running: true,
+				Port:    deviceServer.Port(),
+				Bound:   fmt.Sprintf("127.0.0.1:%d", deviceServer.Port()),
+			},
+		}
+		sendJSON(resp)
+
+	case "device_server_stop":
+		// Stop companion device server
+		if err := deviceServer.Stop(); err != nil {
+			sendError(req.ID, fmt.Sprintf("device server stop failed: %v", err))
+			return
+		}
+		resp := bridge.Response{
+			ID:      req.ID,
+			Success: true,
+			Data: bridge.DeviceServerStatusResult{
+				Running: false,
+				Port:    deviceServer.Port(),
+				Bound:   fmt.Sprintf("127.0.0.1:%d", deviceServer.Port()),
+			},
+		}
+		sendJSON(resp)
+
+	case "device_server_status":
+		resp := bridge.Response{
+			ID:      req.ID,
+			Success: true,
+			Data: bridge.DeviceServerStatusResult{
+				Running: deviceServer.IsRunning(),
+				Port:    deviceServer.Port(),
+				Bound:   fmt.Sprintf("127.0.0.1:%d", deviceServer.Port()),
+			},
+		}
+		sendJSON(resp)
+
+	case "device_server_update":
+		// Push latest chat messages, tasks, and roles to the companion device
+		var payload bridge.DeviceServerUpdatePayload
+		if len(req.Payload) > 0 {
+			if err := json.Unmarshal(req.Payload, &payload); err != nil {
+				sendError(req.ID, fmt.Sprintf("failed to parse device update payload: %v", err))
+				return
+			}
+			deviceServer.UpdateState(payload.ChatID, payload.Messages, payload.Tasks, payload.Roles)
+		}
+		// Drain any remote actions (toggles, prompt edits) triggered from companion devices
+		toggles, prompts := deviceServer.DrainRemoteActions()
+		resp := bridge.Response{
+			ID:      req.ID,
+			Success: true,
+			Data: bridge.DeviceServerUpdateResult{
+				Success: true,
+				Toggles: toggles,
+				Prompts: prompts,
 			},
 		}
 		sendJSON(resp)

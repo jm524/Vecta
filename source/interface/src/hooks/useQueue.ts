@@ -8,6 +8,7 @@ import type { QueueDispatchPayload, QueueDispatchResult } from "../types/bridge.
 import { writeRelay, clearRelay } from "../../../state/relay.js";
 import { appendManagerContext } from "../../../state/manager-duties.js";
 import { documenterCompactToSummary, enforceRawLogRingBuffer } from "../../../roles/documenter.js";
+import { readConfig } from "../../../state/config.js";
 
 export interface QueueHookState {
   tasks: SessionTask[];
@@ -82,6 +83,9 @@ export function useQueue(): QueueHookState {
         setTasks(sessionManager.getTasks());
 
         try {
+          const cfg = readConfig();
+          const taskTimeoutSeconds = nextTask.timeoutSeconds || cfg.timeouts?.roleTimeoutSeconds || 600;
+
           // Send task to the Go systems engine over stdio
           const response = await engineBridge.send<QueueDispatchResult>("queue_dispatch", {
             taskId: nextTask.taskId,
@@ -91,6 +95,12 @@ export function useQueue(): QueueHookState {
             fullPrompt: nextTask.fullPrompt,
             filePaths: nextTask.filePaths,
             fileBoundaries: nextTask.fileBoundaries,
+            model: nextTask.model,
+            modelAssignment: nextTask.modelAssignment,
+            customPath: nextTask.customPath,
+            systemPrompt: nextTask.systemPrompt,
+            apiKey: nextTask.apiKey,
+            timeoutSeconds: taskTimeoutSeconds,
             simulatedOutput: nextTask.simulatedOutput,
           });
 

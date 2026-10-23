@@ -35,6 +35,12 @@ type QueueDispatchPayload struct {
 	FilePaths       []string `json:"filePaths"`
 	FileBoundaries  []string `json:"fileBoundaries"`
 	SimulatedOutput string   `json:"simulatedOutput,omitempty"`
+	Model           string   `json:"model,omitempty"`
+	ModelAssignment string   `json:"modelAssignment,omitempty"`
+	CustomPath      string   `json:"customPath,omitempty"`
+	SystemPrompt    string   `json:"systemPrompt,omitempty"`
+	APIKey          string   `json:"apiKey,omitempty"`
+	TimeoutSeconds  int      `json:"timeoutSeconds,omitempty"`
 }
 
 // QueueResetResult is returned when the queue runner hash loop detector history is cleared.
@@ -97,5 +103,33 @@ type CryptoSecretResult struct {
 type CryptoInitResult struct {
 	KeySet    bool   `json:"keySet"`
 	VaultType string `json:"vaultType"`
+}
+
+// DeviceServerStartPayload options for starting the device server.
+type DeviceServerStartPayload struct {
+	Port int `json:"port,omitempty"`
+}
+
+// DeviceServerStatusResult reports the current device companion server status.
+type DeviceServerStatusResult struct {
+	Running   bool   `json:"running"`
+	Port      int    `json:"port"`
+	Bound     string `json:"bound"`
+	UpdatedAt string `json:"updatedAt,omitempty"`
+}
+
+// DeviceServerUpdatePayload pushes latest chat messages and tasks to the companion device.
+type DeviceServerUpdatePayload struct {
+	ChatID   string          `json:"chatId,omitempty"`
+	Messages json.RawMessage `json:"messages,omitempty"`
+	Tasks    json.RawMessage `json:"tasks,omitempty"`
+	Roles    json.RawMessage `json:"roles,omitempty"`
+}
+
+// DeviceServerUpdateResult returns queued actions from companion devices.
+type DeviceServerUpdateResult struct {
+	Success bool                     `json:"success"`
+	Toggles []map[string]interface{} `json:"toggles,omitempty"`
+	Prompts []map[string]interface{} `json:"prompts,omitempty"`
 }
 

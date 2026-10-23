@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import * as readline from "node:readline";
 import * as path from "node:path";
 import * as fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import type {
   BridgeRequest,
   BridgeResponse,
@@ -55,6 +56,17 @@ export class EngineBridge {
       console.error(`[Go Engine Error]: ${data.toString()}`);
     });
 
+    // Guard stdin from uncaught EPIPE / EOF errors on shutdown
+    this.process.stdin.on("error", (err: any) => {
+      if (err.code !== "EPIPE" && err.code !== "EOF") {
+        console.error(`[Bridge stdin error]: ${err.message}`);
+      }
+    });
+
+    this.process.on("error", (err: any) => {
+      console.error(`[Bridge process error]: ${err.message}`);
+    });
+
     // Clean up if the Go engine stops unexpectedly.
     this.process.on("close", (code: number | null) => {
       this.pendingRequests.forEach((req, id) => {
@@ -65,10 +77,15 @@ export class EngineBridge {
     });
   }
 
+  // Helper to check if Go engine subprocess is live and receptive
+  public isRunning(): boolean {
+    return !!(this.process && this.process.stdin && this.process.stdin.writable && !this.process.killed);
+  }
+
   // Sends a request object to Go and returns a Promise for the response.
   public send<T = unknown>(action: BridgeRequest["action"], payload?: any): Promise<BridgeResponse<T>> {
     return new Promise((resolve, reject) => {
-      if (!this.process || !this.process.stdin.writable) {
+      if (!this.process || !this.process.stdin || !this.process.stdin.writable || this.process.killed) {
         return reject(new Error("Go engine is not running or stdin is closed"));
       }
 
@@ -76,13 +93,19 @@ export class EngineBridge {
       this.requestCounter += 1;
       const id = String(this.requestCounter);
 
-      // Timeout watchdog: reject cleanly after 60s to prevent Promise deadlocks (BUG-002)
+      // Dynamic watchdog timeout: for task queue dispatch, honor the configured roleTimeoutSeconds (default 10 min)
+      // plus a 60-second safety margin. For instant background actions, use a 60-second timeout.
+      const timeoutSec = action === "queue_dispatch"
+        ? (Number(payload?.timeoutSeconds) || 600) + 60
+        : 60;
+      const timeoutMs = timeoutSec * 1000;
+
       const timeout = setTimeout(() => {
         if (this.pendingRequests.has(id)) {
           this.pendingRequests.delete(id);
-          reject(new Error(`Bridge request timed out after 60s (action: ${action}, id: ${id})`));
+          reject(new Error(`Bridge request timed out after ${timeoutSec}s (action: ${action}, id: ${id})`));
         }
-      }, 60000);
+      }, timeoutMs);
 
       // Save the promise handlers so we can finish when Go sends the matching ID back.
       this.pendingRequests.set(id, {
@@ -102,8 +125,20 @@ export class EngineBridge {
         payload,
       };
 
-      // Write the request as a single JSON line followed by a newline character.
-      this.process.stdin.write(JSON.stringify(request) + "\n");
+      // Write with callback and try/catch to prevent unhandled EPIPE
+      try {
+        this.process.stdin.write(JSON.stringify(request) + "\n", (err) => {
+          if (err) {
+            clearTimeout(timeout);
+            this.pendingRequests.delete(id);
+            reject(err);
+          }
+        });
+      } catch (err: any) {
+        clearTimeout(timeout);
+        this.pendingRequests.delete(id);
+        reject(err);
+      }
     });
   }
 
@@ -158,19 +193,49 @@ export class EngineBridge {
     return this.send<{ success: boolean }>("queue_reset");
   }
 
+  // Starts the companion device server bound strictly to 127.0.0.1 (Day 19: Sprint Plan §3).
+  public async deviceServerStart(port?: number): Promise<BridgeResponse<any>> {
+    return this.send("device_server_start", { port });
+  }
+
+  // Stops the companion device server.
+  public async deviceServerStop(): Promise<BridgeResponse<any>> {
+    return this.send("device_server_stop");
+  }
+
+  // Gets the companion device server status.
+  public async deviceServerStatus(): Promise<BridgeResponse<any>> {
+    return this.send("device_server_status");
+  }
+
+  // Pushes latest chat messages and tasks to companion devices and drains remote toggles/prompts.
+  public async deviceServerUpdate(payload: any): Promise<BridgeResponse<any>> {
+    return this.send("device_server_update", payload);
+  }
+
   // Closes the Go engine process when the user exits the app.
   public stop(): void {
     if (this.process) {
-      this.process.stdin.end();
+      if (this.process.stdin && !this.process.stdin.destroyed && this.process.stdin.writable) {
+        try {
+          this.process.stdin.end();
+        } catch {
+          // Stream already closed
+        }
+      }
       const pid = this.process.pid;
       if (process.platform === "win32" && pid) {
         try {
           spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
         } catch {
-          this.process.kill();
+          try {
+            this.process.kill();
+          } catch {}
         }
       } else {
-        this.process.kill();
+        try {
+          this.process.kill();
+        } catch {}
       }
       this.process = null;
     }
@@ -184,25 +249,58 @@ export class EngineBridge {
       ? ["vecta-engine.exe", "engine.exe"]
       : ["vecta-engine", "engine"];
 
+    // 1. Explicit environment variable override
+    if (process.env["VECTA_ENGINE_PATH"] && fs.existsSync(process.env["VECTA_ENGINE_PATH"])) {
+      return process.env["VECTA_ENGINE_PATH"];
+    }
+
+    // 2. Resolve script directory and its realpath (resolving symlinks / npm link)
     const scriptDir = process.argv[1] ? path.dirname(process.argv[1]) : process.cwd();
+    let realScriptDir = scriptDir;
+    try {
+      if (process.argv[1]) {
+        realScriptDir = path.dirname(fs.realpathSync(process.argv[1]));
+      }
+    } catch {
+      // ignore
+    }
+
+    // 3. Resolve module directory via import.meta.url
+    let realModuleDir = "";
+    try {
+      const modulePath = fileURLToPath(import.meta.url);
+      realModuleDir = path.dirname(fs.realpathSync(modulePath));
+    } catch {
+      // ignore
+    }
+
     const execDir = path.dirname(process.execPath);
 
     const searchDirs = [
+      // Direct siblings to dist or bin
+      realModuleDir,
+      realScriptDir,
+      scriptDir,
+      path.resolve(realModuleDir, ".."),
+      path.resolve(realScriptDir, ".."),
+      // Traversals up from source/interface/dist or bin to source/engine
+      path.resolve(realModuleDir, "..", "..", "engine"),
+      path.resolve(realScriptDir, "..", "..", "engine"),
+      path.resolve(realModuleDir, "..", "engine"),
+      path.resolve(realScriptDir, "..", "engine"),
+      // Fallback relative to cwd
       path.resolve(process.cwd(), "source", "engine"),
       path.resolve(process.cwd(), "engine"),
       path.resolve(process.cwd(), "..", "engine"),
       path.resolve(process.cwd(), "..", "..", "engine"),
-      path.resolve(scriptDir, "..", "..", "..", "engine"),
-      path.resolve(scriptDir, "..", "..", "engine"),
-      path.resolve(scriptDir, "..", "engine"),
-      path.resolve(scriptDir, "engine"),
-      scriptDir,
+      // Known source directories
+      "C:\\Github\\Vecta\\source\\engine",
       path.resolve(execDir, "engine"),
       execDir,
-    ];
+    ].filter(Boolean);
 
-    for (const name of binaryNames) {
-      for (const dir of searchDirs) {
+    for (const dir of searchDirs) {
+      for (const name of binaryNames) {
         const fullPath = path.resolve(dir, name);
         if (fs.existsSync(fullPath)) {
           return fullPath;

@@ -12,6 +12,12 @@ export interface QueueDispatchPayload {
   filePaths: string[];
   fileBoundaries: string[];
   simulatedOutput?: string;
+  model?: string;
+  modelAssignment?: string;
+  customPath?: string;
+  systemPrompt?: string;
+  apiKey?: string;
+  timeoutSeconds?: number;
 }
 
 /** Result returned when the queue runner hash loop detector history is cleared */
@@ -171,6 +177,26 @@ export interface CryptoSecretResult {
   success: boolean;
 }
 
+export interface DeviceServerStatusResult {
+  running: boolean;
+  port: number;
+  bound: string;
+  updatedAt?: string;
+}
+
+export interface DeviceServerUpdatePayload {
+  chatId?: string;
+  messages?: any[];
+  tasks?: any[];
+  roles?: any[];
+}
+
+export interface DeviceServerUpdateResult {
+  success: boolean;
+  toggles?: Array<{ role: string; enabled: boolean; timestamp: string }>;
+  prompts?: Array<{ role: string; prompt: string; timestamp: string }>;
+}
+
 /** Command requests sent from TypeScript to Go over stdin */
 export type BridgeRequest =
   | { id: string; action: "ping"; payload?: Record<string, never> }
@@ -184,6 +210,10 @@ export type BridgeRequest =
   | { id: string; action: "crypto_get_secret"; payload: { key: string } }
   | { id: string; action: "crypto_has_secret"; payload: { key: string } }
   | { id: string; action: "crypto_delete_secret"; payload: { key: string } }
+  | { id: string; action: "device_server_start"; payload?: { port?: number } }
+  | { id: string; action: "device_server_stop"; payload?: Record<string, never> }
+  | { id: string; action: "device_server_status"; payload?: Record<string, never> }
+  | { id: string; action: "device_server_update"; payload?: DeviceServerUpdatePayload }
   | { id: string; action: "device_status"; payload?: Record<string, never> };
 
 /** Response messages sent from Go to TypeScript over stdout */

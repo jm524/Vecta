@@ -200,6 +200,34 @@
 - **Root Cause:** Ollama stores model weights in `.ollama/models/blobs/` as extensionless SHA256 hashes without `.gguf` extensions. The scanner's `knownExts` filter requires `.gguf`, `.safetensors`, or `.bin`, completely skipping all offline Ollama files on disk.
 - **Fix:** In `scanner.go`, parse Ollama manifest files located in `.ollama/models/manifests/` when the Ollama server is offline to detect installed models from disk without requiring the daemon to be running.
 
+---
+
+## Technical Debt & Post-Testing Cleanup (October 23, 2026)
+
+> Triage log for testing workarounds and drive naming fixes applied on Oct 23, 2026, scheduled for systematic cleanup post-testing.
+
+### DEBT-001 (Cleanup): Hardcoded "Seagate" Drive Reference Removal
+- **Files Modified:** `source/engine/models/inference.go`, `source/docs/versions.md`
+- **Symptom:** When Ollama is offline or a model is missing from disk, Vecta rendered an advisory message specifically requesting a Seagate drive: `Please connect your external model drive (e.g. Seagate D:\)`.
+- **Root Cause:** The fallback warning string in `inference.go` (line 176 and 217) hardcoded the vendor name "Seagate" as an illustrative example, causing user confusion when using alternative external drive volumes like Western Digital `Elements (D:)`.
+- **Status:** **Patched for Testing.** All occurrences of "Seagate" replaced with generic external drive notation `(D:\)`.
+- **Post-Testing Action:** Implement dynamic drive label discovery via Go's `GetVolumeInformationW` on Windows or drive mount enumeration so error messages adapt dynamically to whatever volume label the user's secondary drive possesses (e.g., `Elements (D:)`, `Samsung (E:)`, etc.) rather than assuming any fixed name.
+
+### DEBT-002 (Cleanup): Raw Blob Hash Auto-Resolution Temporary Patch
+- **Files Modified:** `source/engine/models/inference.go`
+- **Symptom:** Selecting a direct blob file from `D:\OllamaModels\Vecta Model\blobs\` saved the raw SHA-256 digest (`sha256-dde5aa3fc5ffc17176b5e8bdc82f587b24b2678c6c66101bf7da77af9f7ccdff`) as the role model name in `.vecta/config.json`. Ollama's HTTP API `/api/generate` rejected the raw hash string with a model not found error.
+- **Root Cause:** Ollama requires friendly model tags (`llama3.2:3b`, `qwen2.5-coder:3b`) rather than internal content-addressable SHA-256 blob digests when invoking `/api/generate`.
+- **Status:** **Temporary Workaround Applied.** Added a direct string check mapping `sha256-dde5aa...` to `llama3.2:3b` in `inference.go` to unblock immediate local inference testing.
+- **Post-Testing Action:** Remove the hardcoded `sha256-dde5aa` string check. Replace with a generic manifest reverse-lookup utility in Go (`scanner/manifest.go`) that scans the `manifests/` directory on disk, parses the JSON layer digests, and automatically maps any raw SHA-256 blob path back to its registered Ollama model tag.
+
+### DEBT-003 (Cleanup): Synchronized `vecta-default:latest` Tag Alias
+- **Files Modified:** `D:\OllamaModels\Vecta Model\manifests-v2\ollama.com\library\vecta-default`
+- **Symptom:** Default roles and unassigned pipeline stages requested `vecta-default:latest`, which was originally an alias for `llama3.1:8b` (4.9 GB), causing severe memory paging delays on 8 GB RAM machines.
+- **Root Cause:** Prior to testing, `vecta-default:latest` was coupled to the heavier 8B parameter model.
+- **Status:** **Synchronized for Testing.** Executed `ollama cp llama3.2:3b vecta-default:latest` so that fallback calls to `vecta-default:latest` execute the fast 2.0 GB 3B model.
+- **Post-Testing Action:** Decouple the hardcoded model copy. Implement a first-boot model selection wizard or an explicit user setting in `/settings` that binds `vecta-default` dynamically according to the user's hardware tier (3B for ≤8GB RAM, 8B for 16GB, 14B+ for 32GB+).
+
+
 
 
 

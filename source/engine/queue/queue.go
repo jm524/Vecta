@@ -4,6 +4,7 @@
 package queue
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -13,18 +14,21 @@ import (
 	"time"
 
 	"github.com/vecta-cli/engine/bridge"
+	"github.com/vecta-cli/engine/models"
 )
 
 // Runner manages sequential task execution, path checks, and 3x hash loop detection.
 type Runner struct {
-	mu           sync.Mutex
-	outputHashes []string
+	mu              sync.Mutex
+	outputHashes    []string
+	inferenceClient *models.Client
 }
 
 // NewRunner creates a new queue runner.
 func NewRunner() *Runner {
 	return &Runner{
-		outputHashes: make([]string, 0),
+		outputHashes:    make([]string, 0),
+		inferenceClient: models.NewClient(),
 	}
 }
 
@@ -58,10 +62,46 @@ func (r *Runner) ExecuteTask(payload bridge.QueueDispatchPayload) (*bridge.Queue
 	}
 
 	// 2. Formulate the role output.
-	// If a custom or simulated output is provided in payload, use that; otherwise generate standard role output.
+	// If a custom or simulated output is provided in payload, use that; otherwise invoke real model inference.
 	output := payload.SimulatedOutput
+	tokensUsed := 285
+
 	if output == "" {
-		output = fmt.Sprintf("[%s]: Processed prompt '%s' successfully.", payload.Role, payload.Prompt)
+		// Real Model Inference Engine (Day 19: Local Ollama / Cloud / Local Models)
+		timeoutSec := payload.TimeoutSeconds
+		if timeoutSec <= 0 {
+			timeoutSec = 600 // Default to 10 minutes (Sprint Plan §5)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
+		defer cancel()
+
+		reqPrompt := payload.FullPrompt
+		if reqPrompt == "" {
+			reqPrompt = payload.Prompt
+		}
+
+		inferReq := models.InferenceRequest{
+			Model:        payload.Model,
+			Prompt:       reqPrompt,
+			SystemPrompt: payload.SystemPrompt,
+			Assignment:   payload.ModelAssignment,
+			CustomPath:   payload.CustomPath,
+			APIKey:       payload.APIKey,
+		}
+
+		inferResp, err := r.inferenceClient.ExecuteInference(ctx, inferReq)
+		if err != nil {
+			return nil, fmt.Errorf("model inference error for %s: %w", payload.Role, err)
+		}
+
+		output = inferResp.Output
+		tokensUsed = inferResp.TokensUsed
+		if tokensUsed <= 0 {
+			tokensUsed = len(output) / 4
+			if tokensUsed < 10 {
+				tokensUsed = 10
+			}
+		}
 	}
 
 	// 3. 3x Hash Loop Detector (Day 18 Resilience):
@@ -80,15 +120,12 @@ func (r *Runner) ExecuteTask(payload bridge.QueueDispatchPayload) (*bridge.Queue
 	}
 	r.mu.Unlock()
 
-	// 4. Simulate task execution duration (one at a time, strictly sequential).
-	time.Sleep(100 * time.Millisecond)
-
-	// 5. Return result with token count and timestamp.
+	// 4. Return result with token count and timestamp.
 	result := &bridge.QueueDispatchResult{
 		TaskID:      payload.TaskID,
 		Role:        payload.Role,
 		Output:      output,
-		TokensUsed:  285, // Sample tokens used for this turn
+		TokensUsed:  tokensUsed,
 		CompletedAt: time.Now().Format(time.RFC3339),
 	}
 

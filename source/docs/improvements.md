@@ -215,6 +215,23 @@ tags:
 > 2. **Clear Guidance on Missing Dependency:** If Ollama is not installed or unreachable, avoid attempting a failing download. Display clear actionable instructions: provide the link to install Ollama (`https://ollama.com`), or offer immediate fallback to cloud API keys (Groq, OpenAI, Anthropic) in `/roles`.
 > 3. **Disk Space Verification:** Ensure the target drive has at least 5.5GB of free space before initiating any local model pull to prevent mid-download storage exhaustion.
 
+> [!important] 31. Real Model Response Latency Optimization & Output Structuring via Prompt Engineering
+> **Location:** `source/engine/models/inference.go`, `source/roles/`, `source/engine/queue/queue.go`
+> **Context:** Field testing with local 3B/8B models on local hardware (Oct 23, Day 20).
+> **Current State:** The local model executes and replies, but response latency can be further minimized, and raw model responses vary in structure without strict output formatting.
+> **Improvement:**
+> 1. **Inference Latency & CPU Optimization:**
+>    - **Context Window Capping (`num_ctx`):** Cap Ollama context window (e.g., `num_ctx: 2048` or `4096`) instead of model maximums (8K-128K). Reduces CPU prompt evaluation time (`prompt eval time`) from minutes to under 2 seconds.
+>    - **Thread Tuning (`num_thread`):** Configure Ollama's `num_thread` option dynamically to match the machine's physical CPU cores (e.g. 6-8 threads on Intel i5/i7) for optimal compute efficiency without thread thrashing.
+>    - **Output Token Prediction Cap (`num_predict`):** Bound response lengths (e.g., 400-600 tokens for Manager orchestration, 1000 tokens for Coder) to prevent runaway generations and deliver snappier responses.
+>    - **Live Token Streaming:** Implement chunk-by-chunk token streaming from Ollama -> Go engine -> TypeScript chat so tokens stream onto the screen in real-time, eliminating perception of delay.
+> 2. **Response Structuring Through Prompt Engineering:**
+>    - **Strict Output Contracts in Role Prompts:** Enhance `assembleTaskPrompt()` and system prompts (`MANAGER_DEFAULT_PROMPT`, `CODER_DEFAULT_PROMPT`, `PLANNER_DEFAULT_PROMPT`) with strict section delimiters (e.g., `### Plan`, `### Files to Modify`, `### Implementation`).
+>    - **Zero Conversational Fluff:** Explicit negative prompt engineering forbidding polite preambles (e.g. "Sure, I can help with that...", "As an AI model...", "Here is what I will do..."). Enforce immediate technical delivery.
+>    - **Machine-Parseable Code Blocks:** Ensure code responses strictly use fenced code blocks with file path headers (` ```<lang> path/to/file `) and clean diff formatting for seamless ingestion by Checkers and Documenter.
+>    - **Compact Terminal Viewport Sizing:** Train prompt instructions to structure bullet points and summaries compactly, preventing vertical scroll overflow and terminal layout jitter.
+
+
 
 
 

@@ -3,11 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "vecta": "./bin/vecta.js"
+  },
   "scripts": {
     "dev": "tsx src/main.ts",
-    "build": "esbuild src/main.ts --bundle --platform=node --format=esm --external:react-devtools-core --outfile=dist/main.js",
+    "build": "esbuild src/main.ts --bundle --platform=node --format=esm --alias:react-devtools-core=./src/helpers/react-devtools-core-stub.js --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\" --outfile=dist/main.js",
     "typecheck": "tsc --noEmit",
-    "test": "tsx src/testing/test-oct21-resilience-ccm.ts",
+    "test": "tsx src/testing/test-oct22-inference-device.ts",
+    "test:oct22": "tsx src/testing/test-oct22-inference-device.ts",
     "test:oct21": "tsx src/testing/test-oct21-resilience-ccm.ts",
     "test:queue": "tsx src/testing/test-queue.ts",
     "test:oct20": "tsx src/testing/test-oct20-compaction-pruning.ts",

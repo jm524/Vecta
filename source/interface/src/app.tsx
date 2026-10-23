@@ -22,6 +22,8 @@ import { pruneInactiveRawLogs } from "../../roles/documenter.js";
 import { readConfig } from "../../state/config.js";
 import { loadAllMemoryTiers } from "../../state/memory.js";
 import { assembleTaskPrompt } from "../../roles/base.js";
+import { deviceBridge } from "./services/device-bridge.js";
+import { shutdownOllamaServer } from "./helpers/process.js";
 
 export const App: React.FC = () => {
   const { exit } = useApp();
@@ -89,7 +91,7 @@ export const App: React.FC = () => {
   }, []);
 
 
-  // Check Go engine connection on launch
+  // Check Go engine connection on launch & start device companion server (Sprint Plan §3)
   useEffect(() => {
     const checkBridge = async () => {
       try {
@@ -97,12 +99,28 @@ export const App: React.FC = () => {
         await engineBridge.cryptoInit();
         // Inactivity auto-delete runner (Claude Doc 14 & Sprint Plan §2I)
         pruneInactiveRawLogs().catch(() => {});
+        // Companion device server is not started automatically.
+        // It starts on-demand via '/server start' or '/server run' (or 'vecta server run' in CLI).
       } catch (err: any) {
         addMessage("System", `Engine bridge error: ${err.message}`, "red");
       }
     };
     checkBridge();
+
+    return () => {
+      deviceBridge.stopServer().catch(() => {});
+    };
   }, []);
+
+  // Background companion sync: push latest chat & queue tasks to device server
+  useEffect(() => {
+    deviceBridge.syncState({
+      chatId: session.getActiveChatId() || "default",
+      messages: session.messages,
+      tasks: tasks,
+      roles: rolesHook.roles,
+    }).catch(() => {});
+  }, [session.messages, tasks, rolesHook.roles]);
 
   // Global keyboard shortcuts (Sidebar, Auto-accept, and PageUp/PageDown Scrolling)
   useInput((input, key) => {
@@ -155,10 +173,11 @@ export const App: React.FC = () => {
 
     // Exit command
     if (trimmed === "/exit") {
-      addMessage("System", "Exiting...", "yellow");
+      addMessage("System", "Exiting and stopping inference servers...", "yellow");
       setTimeout(() => {
         exit();
         engineBridge.stop();
+        shutdownOllamaServer();
         process.exit(0);
       }, 100);
       return;
@@ -306,10 +325,67 @@ export const App: React.FC = () => {
       return;
     }
 
-    // Stop background inference servers command (Sprint Plan §2U & improvements #9)
-    if (trimmed === "/server stop") {
-      rolesHook.stopBackgroundServer().then((msg) => {
-        addMessage("System", msg, "blue");
+    // Companion device server & background inference server commands (/device or /server)
+    if (
+      trimmed === "/device start" ||
+      trimmed === "/device run" ||
+      trimmed === "/device" ||
+      trimmed === "/server start" ||
+      trimmed === "/server run"
+    ) {
+      deviceBridge.startServer(8765).then(async (res) => {
+        if (res.running) {
+          const [adbOk, devices] = await Promise.all([
+            deviceBridge.setupAdbReverse(8765),
+            deviceBridge.listAdbDevices(),
+          ]);
+          let devMsg = "Companion device server started on http://127.0.0.1:8765 (strictly local USB, zero Wi-Fi).";
+          if (devices.length > 0) {
+            const devNames = devices.map(d => `${d.model || d.product || "Android"} (${d.isEmulator ? "Emulator" : "USB Phone"})`).join(", ");
+            devMsg += `\nConnected: ${devNames}. ADB Reverse active (tcp:8765 -> tcp:8765).`;
+          } else {
+            devMsg += `\nADB Reverse: ${adbOk ? "Active" : "Standby"}. No USB phone detected yet. Plug in phone via USB with USB Debugging enabled.`;
+          }
+          addMessage("System", devMsg, "green");
+        } else {
+          addMessage("System", "Failed to start companion device server on port 8765.", "red");
+        }
+      }).catch((err: any) => {
+        addMessage("System", `Companion server error: ${err.message}`, "red");
+      });
+      return;
+    }
+
+    if (trimmed === "/device stop" || trimmed === "/server stop") {
+      shutdownOllamaServer();
+      Promise.all([
+        deviceBridge.removeAdbReverse(8765),
+        deviceBridge.stopServer(),
+        rolesHook.stopBackgroundServer(),
+      ]).then(([adbRes, devRes, bgMsg]) => {
+        addMessage("System", `Companion server stopped. Ollama inference server stopped. ${bgMsg}`, "blue");
+      }).catch((err: any) => {
+        addMessage("System", `Server stop error: ${err.message}`, "yellow");
+      });
+      return;
+    }
+
+    if (trimmed === "/device status" || trimmed === "/server status") {
+      deviceBridge.getStatus().then((status) => {
+        if (status.serverRunning) {
+          let msg = `Companion device server is ACTIVE on http://${status.boundAddress} (Loopback only - zero Wi-Fi).`;
+          if (status.connectedDevices && status.connectedDevices.length > 0) {
+            const names = status.connectedDevices.map(d => `${d.model || d.product || "Android"} (${d.state})`).join(", ");
+            msg += `\nConnected USB Devices: ${names}. Reverse: ${status.adbReversed ? "Active" : "Standby"}`;
+          } else {
+            msg += "\nConnected USB Devices: None detected. Plug in phone via USB with USB Debugging enabled.";
+          }
+          addMessage("System", msg, "green");
+        } else {
+          addMessage("System", "Companion device server is STOPPED. Type '/device' or run 'vecta device' in terminal to launch it.", "yellow");
+        }
+      }).catch((err: any) => {
+        addMessage("System", `Server status error: ${err.message}`, "red");
       });
       return;
     }
@@ -332,7 +408,9 @@ export const App: React.FC = () => {
           "  /settings                - Configure theme, timeouts, token caps, and safety limits",
           "  /build                   - Switch to BUILD mode (code generation and execution)",
           "  /plan                    - Switch to PLAN mode (architectural breakdown)",
-          "  /server stop             - Stop running background model inference servers (Ollama, LM Studio)",
+          "  /device start (or /device) - Connect USB phone / emulator & start companion server (127.0.0.1:8765)",
+          "  /device status           - Check companion phone connection & reverse tunnel status",
+          "  /device stop             - Stop companion device server and background inference servers",
           "  /help                    - Display this command index and shortcut reference",
           "  /exit                    - Cleanly close and exit Vecta",
           "",
@@ -365,143 +443,261 @@ export const App: React.FC = () => {
 
     addMessage("User", promptText);
 
-    if (mode === "PLANNING") {
-      // Planning mode: Manager decomposes tasks conceptually
-      setTimeout(() => {
-        addMessage(
-          "Manager",
-          `[Plan] Deconstructing: "${promptText}". Mapping architecture boundaries and task dependencies.`,
-          "cyan"
-        );
-      }, 150);
-    } else {
-      // Implementation mode: Manager matches roles and dispatches through the FIFO queue
-      const lower = promptText.toLowerCase();
-      const pipeline: QueueDispatchPayload[] = [];
-      const runId = Date.now();
+    const activeChatId = session.getActiveChatId() || session.activeChatId || "default";
+    const memoryTiers = loadAllMemoryTiers(activeChatId, session.activeChat?.projectId);
+    const runId = Date.now();
 
-      // Helper to check if a role is currently enabled in rolesHook
-      const isRoleEnabled = (slug: string): boolean => {
-        const found = rolesHook.roles.find((r) => r.slug === slug);
-        return found ? found.enabled : true;
-      };
+    // Helper to check if a role is currently enabled in rolesHook
+    const isRoleEnabled = (slug: string): boolean => {
+      const found = rolesHook.roles.find((r) => r.slug === slug);
+      return found ? found.enabled : true;
+    };
 
-      // Keyword & path heuristics (Sprint Plan §2M) respecting enabled roles
-      let builderRole = "Coder";
-      let builderPaths = ["source/"];
-      let checkerRole = "Code Reviewer";
-      let checkerPrompt = "Inspect implementation correctness";
+    // Helper to lookup role definition for model assignments
+    const resolveRoleDef = (roleName: string) => {
+      return rolesHook.roles.find(
+        (r) => r.name.toLowerCase() === roleName.toLowerCase() || r.slug === roleName.toLowerCase()
+      );
+    };
 
-      if (lower.includes("auth") || lower.includes("api") || lower.includes("login") || lower.includes("database")) {
-        builderRole = isRoleEnabled("backend-engineer") ? "Backend Engineer" : "Coder";
-        builderPaths = ["source/engine/"];
-        checkerRole = isRoleEnabled("security-checker")
-          ? "Security Checker"
-          : isRoleEnabled("code-reviewer")
-          ? "Code Reviewer"
-          : "Reviewer";
-        checkerPrompt = "Verify authentication boundary and credential handling";
-      } else if (
-        lower.includes("ui") ||
-        lower.includes("component") ||
-        lower.includes("button") ||
-        lower.includes("screen") ||
-        lower.includes("frontend")
-      ) {
-        builderRole = isRoleEnabled("frontend-engineer") ? "Frontend Engineer" : "Coder";
-        builderPaths = ["source/interface/src/components/"];
-        checkerRole = isRoleEnabled("code-reviewer") ? "Code Reviewer" : "Reviewer";
-        checkerPrompt = "Audit component types and layout ergonomics";
-      } else {
-        builderRole = isRoleEnabled("coder") ? "Coder" : "Backend Engineer";
-        builderPaths = ["source/"];
-        checkerRole = isRoleEnabled("code-reviewer") ? "Code Reviewer" : "Reviewer";
-        checkerPrompt = "Inspect implementation correctness";
-      }
-
-      // Stage 1: Dispatched Builder
-      const activeChatId = session.getActiveChatId() || session.activeChatId || "default";
-      const memoryTiers = loadAllMemoryTiers(activeChatId, session.activeChat?.projectId);
-
-      // Helper to assemble role prompt with Layer 1 safety, role instructions, and 3-tier memory (Day 18)
-      const buildRolePrompt = (roleName: string, subTask: string, paths: string[]): string => {
-        const found = rolesHook.roles.find(
-          (r) => r.name.toLowerCase() === roleName.toLowerCase() || r.slug === roleName.toLowerCase()
-        );
-        if (found) {
-          return assembleTaskPrompt(found, {
-            userRequest: promptText,
-            taskDescription: subTask,
-            allowedPaths: paths,
-            allowedBoundaries: ["source/"],
-            memoryTiers: {
-              tier1Preferences: memoryTiers.tier1Preferences,
-              tier2CCM: {
-                scopeName: memoryTiers.tier2CCM.scopeName,
-                keyPoints: memoryTiers.tier2CCM.keyPoints,
-                narrative: memoryTiers.tier2CCM.narrative,
-              },
-              tier3Summary: {
-                keyPoints: memoryTiers.tier3Summary.keyPoints,
-                narrative: memoryTiers.tier3Summary.narrative,
-              },
+    // Helper to assemble role prompt with Layer 1 safety, role instructions, and 3-tier memory (Day 18)
+    const buildRolePrompt = (roleName: string, subTask: string, paths: string[]): string => {
+      const found = resolveRoleDef(roleName);
+      if (found) {
+        return assembleTaskPrompt(found, {
+          userRequest: promptText,
+          taskDescription: subTask,
+          allowedPaths: paths,
+          allowedBoundaries: ["source/"],
+          memoryTiers: {
+            tier1Preferences: memoryTiers.tier1Preferences,
+            tier2CCM: {
+              scopeName: memoryTiers.tier2CCM.scopeName,
+              keyPoints: memoryTiers.tier2CCM.keyPoints,
+              narrative: memoryTiers.tier2CCM.narrative,
             },
-          });
-        }
-        return subTask;
-      };
-
-      // Stage 1: Dispatched Builder
-      pipeline.push({
-        taskId: `task-${runId}-1`,
-        role: builderRole,
-        stage: 1,
-        prompt: promptText,
-        fullPrompt: buildRolePrompt(builderRole, promptText, builderPaths),
-        filePaths: builderPaths,
-        fileBoundaries: ["source/"],
-      });
-
-      // Stage 2: Dispatched Checker (only if at least one checker is enabled)
-      if (isRoleEnabled("code-reviewer") || isRoleEnabled("security-checker") || isRoleEnabled("reviewer")) {
-        pipeline.push({
-          taskId: `task-${runId}-2`,
-          role: checkerRole,
-          stage: 2,
-          prompt: checkerPrompt,
-          fullPrompt: buildRolePrompt(checkerRole, checkerPrompt, builderPaths),
-          filePaths: builderPaths,
-          fileBoundaries: ["source/"],
+            tier3Summary: {
+              keyPoints: memoryTiers.tier3Summary.keyPoints,
+              narrative: memoryTiers.tier3Summary.narrative,
+            },
+          },
         });
       }
+      return subTask;
+    };
 
-      // Stage 3: Documenter always runs last
+    if (mode === "PLANNING") {
+      // Planning mode: Manager executes real model inference to deconstruct project architecture
+      const managerDef = resolveRoleDef("Manager");
+      const docDef = resolveRoleDef("Documenter");
+
+      const planningPrompt = [
+        `Architectural Planning Request: "${promptText}"`,
+        "Deconstruct this project requirement into a clear architectural blueprint.",
+        "Detail the key subsystems, task dependencies, sequential phases, and recommended builder roles.",
+        "Keep your response concise, actionable, and structured with clear sections.",
+      ].join("\n\n");
+
+      const pipeline: QueueDispatchPayload[] = [
+        {
+          taskId: `plan-${runId}-manager`,
+          role: "Manager",
+          stage: 0,
+          prompt: promptText,
+          fullPrompt: buildRolePrompt("Manager", planningPrompt, ["source/"]),
+          filePaths: ["source/"],
+          fileBoundaries: ["source/"],
+          model: managerDef?.model || "llama3.2:3b",
+          modelAssignment: managerDef?.assignmentType || "local",
+          customPath: managerDef?.customPath,
+        },
+        {
+          taskId: `plan-${runId}-doc`,
+          role: "Documenter",
+          stage: 3,
+          prompt: "Persist architectural plan to memory",
+          fullPrompt: "Documenter: Record plan",
+          filePaths: ["source/.vecta/"],
+          fileBoundaries: ["source/"],
+          model: docDef?.model || "vecta-default:latest",
+          modelAssignment: docDef?.assignmentType || "local",
+          simulatedOutput: "DOCUMENTER: Architectural plan recorded in session memory.",
+        },
+      ];
+
+      dispatchPipeline(
+        pipeline,
+        (taskResult) => {
+          if (taskResult.role !== "Documenter") {
+            const roleColor = rolesHook.getRoleColor(taskResult.role);
+            addMessage(taskResult.role, taskResult.output, roleColor);
+          }
+        },
+        () => {
+          // Planning complete
+        },
+        activeChatId,
+        (_failedTask, errorMsg) => {
+          addMessage("Manager", `Planning halted: ${errorMsg}`, "red");
+        }
+      );
+    } else {
+      // Implementation mode: Manager runs real inference to address the user and orchestrate builders
+      const lower = promptText.toLowerCase();
+      const pipeline: QueueDispatchPayload[] = [];
+
+      // Check if this is an informational / explanation query vs an implementation task
+      const isQuestion =
+        lower.startsWith("what ") ||
+        lower.startsWith("how ") ||
+        lower.startsWith("why ") ||
+        lower.startsWith("explain ") ||
+        lower.startsWith("tell me ") ||
+        lower.startsWith("who ") ||
+        lower.startsWith("help ") ||
+        lower.endsWith("?");
+
+      const managerDef = resolveRoleDef("Manager");
+      const docDef = resolveRoleDef("Documenter");
+
+      if (isQuestion) {
+        // Conversational / informational query: Manager answers the user directly via real model inference
+        const questionPrompt = [
+          `User Query: "${promptText}"`,
+          "Answer the user's question directly, clearly, and concisely as the Vecta Manager.",
+        ].join("\n\n");
+
+        pipeline.push({
+          taskId: `task-${runId}-0-manager`,
+          role: "Manager",
+          stage: 0,
+          prompt: promptText,
+          fullPrompt: buildRolePrompt("Manager", questionPrompt, ["source/"]),
+          filePaths: ["source/"],
+          fileBoundaries: ["source/"],
+          model: managerDef?.model || "llama3.2:3b",
+          modelAssignment: managerDef?.assignmentType || "local",
+          customPath: managerDef?.customPath,
+        });
+      } else {
+        // Keyword & path heuristics (Sprint Plan §2M) respecting enabled roles
+        let builderRole = "Coder";
+        let builderPaths = ["source/"];
+        let checkerRole = "Code Reviewer";
+        let checkerPrompt = "Inspect implementation correctness";
+
+        if (lower.includes("auth") || lower.includes("api") || lower.includes("login") || lower.includes("database")) {
+          builderRole = isRoleEnabled("backend-engineer") ? "Backend Engineer" : "Coder";
+          builderPaths = ["source/engine/"];
+          checkerRole = isRoleEnabled("security-checker")
+            ? "Security Checker"
+            : isRoleEnabled("code-reviewer")
+            ? "Code Reviewer"
+            : "Reviewer";
+          checkerPrompt = "Verify authentication boundary and credential handling";
+        } else if (
+          lower.includes("ui") ||
+          lower.includes("component") ||
+          lower.includes("button") ||
+          lower.includes("screen") ||
+          lower.includes("frontend")
+        ) {
+          builderRole = isRoleEnabled("frontend-engineer") ? "Frontend Engineer" : "Coder";
+          builderPaths = ["source/interface/src/components/"];
+          checkerRole = isRoleEnabled("code-reviewer") ? "Code Reviewer" : "Reviewer";
+          checkerPrompt = "Audit component types and layout ergonomics";
+        } else {
+          builderRole = isRoleEnabled("coder") ? "Coder" : "Backend Engineer";
+          builderPaths = ["source/"];
+          checkerRole = isRoleEnabled("code-reviewer") ? "Code Reviewer" : "Reviewer";
+          checkerPrompt = "Inspect implementation correctness";
+        }
+
+        const builderDef = resolveRoleDef(builderRole);
+        const checkerDef = resolveRoleDef(checkerRole);
+
+        // Stage 0: Manager runs real model inference to outline orchestration plan & boundaries
+        const managerOrchestratePrompt = [
+          `User Implementation Request: "${promptText}"`,
+          `Analyze the request and outline your orchestration plan:`,
+          `1. Briefly state what will be implemented and the target directory boundaries (${builderPaths.join(", ")}).`,
+          `2. Declare that you are dispatching ${builderRole} to implement the solution.`,
+          `Keep your response concise and direct (2-3 sentences).`,
+        ].join("\n\n");
+
+        pipeline.push({
+          taskId: `task-${runId}-0-manager`,
+          role: "Manager",
+          stage: 0,
+          prompt: promptText,
+          fullPrompt: buildRolePrompt("Manager", managerOrchestratePrompt, builderPaths),
+          filePaths: builderPaths,
+          fileBoundaries: ["source/"],
+          model: managerDef?.model || "llama3.2:3b",
+          modelAssignment: managerDef?.assignmentType || "local",
+          customPath: managerDef?.customPath,
+        });
+
+        // Stage 1: Dispatched Builder (Model executes inference and writes implementation)
+        pipeline.push({
+          taskId: `task-${runId}-1-builder`,
+          role: builderRole,
+          stage: 1,
+          prompt: promptText,
+          fullPrompt: buildRolePrompt(builderRole, promptText, builderPaths),
+          filePaths: builderPaths,
+          fileBoundaries: ["source/"],
+          model: builderDef?.model || "llama3.2:3b",
+          modelAssignment: builderDef?.assignmentType || "local",
+          customPath: builderDef?.customPath,
+        });
+
+        // Stage 2: Dispatched Checker (Runs review only if enabled and this is an actual code change task)
+        const hasEnabledChecker =
+          isRoleEnabled("code-reviewer") || isRoleEnabled("security-checker") || isRoleEnabled("reviewer");
+        if (hasEnabledChecker) {
+          pipeline.push({
+            taskId: `task-${runId}-2-checker`,
+            role: checkerRole,
+            stage: 2,
+            prompt: checkerPrompt,
+            fullPrompt: buildRolePrompt(checkerRole, `${checkerPrompt} for: "${promptText}"`, builderPaths),
+            filePaths: builderPaths,
+            fileBoundaries: ["source/"],
+            model: checkerDef?.model || "vecta-default:latest",
+            modelAssignment: checkerDef?.assignmentType || "local",
+          });
+        }
+      }
+
+      // Stage 3: Documenter always runs last with simulatedOutput so it finishes in 1ms without Ollama reload
       pipeline.push({
-        taskId: `task-${runId}-3`,
+        taskId: `task-${runId}-3-doc`,
         role: "Documenter",
         stage: 3,
         prompt: "Persist audit trail to raw.log and compact memory",
         fullPrompt: buildRolePrompt("Documenter", "Persist audit trail to raw.log and compact memory", ["source/.vecta/"]),
         filePaths: ["source/.vecta/"],
         fileBoundaries: ["source/"],
+        model: docDef?.model || "vecta-default:latest",
+        modelAssignment: docDef?.assignmentType || "local",
+        simulatedOutput: "DOCUMENTER: Audit trail recorded and memory compacted.",
       });
-
-      const sequence = pipeline.map((t, i) => `${i + 1}. ${t.role}`).join(" → ");
-      addMessage("Manager", `Pipeline assembled: ${sequence}. Running sequentially...`, "cyan");
 
       // Dispatch through the sequential queue
       dispatchPipeline(
         pipeline,
         (taskResult) => {
-          // As each task completes, announce it in chat with dynamic role color (Requirement 1)
-          const roleColor = rolesHook.getRoleColor(taskResult.role);
-          addMessage(taskResult.role, taskResult.output, roleColor);
+          // Announce real model output for Manager, Builder, Checker (skip passive Documenter simulated output)
+          if (taskResult.role !== "Documenter") {
+            const roleColor = rolesHook.getRoleColor(taskResult.role);
+            addMessage(taskResult.role, taskResult.output, roleColor);
+          }
         },
         () => {
-          // When all tasks in the pipeline finish
-          addMessage("Manager", "All pipeline tasks completed successfully.", rolesHook.getRoleColor("Manager"));
+          // Pipeline complete
         },
-        session.getActiveChatId() || session.activeChatId || "default",
+        activeChatId,
         (_failedTask, errorMsg) => {
           addMessage("Manager", `Execution halted: ${errorMsg}`, "red");
         }
@@ -692,6 +888,8 @@ export const App: React.FC = () => {
         availableWidth={chatWidth}
         scrollOffset={scrollOffset}
         roles={rolesHook.roles}
+        isProcessing={isProcessing}
+        activeRole={activeTask?.role}
       />
 
       {/* Optional Right Sidebar (Day 18 Live Token Sync) */}

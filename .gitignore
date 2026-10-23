@@ -1,1 +1,33 @@
+# Vecta CLI ignore
 Vecta CLI/
+
+# Vecta local runtime data — never commit
+.vecta/
+source/.vecta/
+
+# Environment & credentials
+.env
+*.env
+relay/.dev.vars
+
+# Node / dependencies / build artifacts
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Executables & binaries
+*.exe
+*.exe~
+bin/*.exe
+source/engine/vecta-engine
+source/engine/vecta-engine.exe
+source/interface/bin/*.exe
+source/interface/dist/*.exe
+
+# OS junk
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Encryption Key + Secrets
+view-vault-keys.ts

@@ -36,7 +36,12 @@ export const BASE_SLASH_COMMANDS: SlashCommandItem[] = [
   { cmd: "/settings", desc: "Configure theme, timeouts, token caps, and safety limits" },
   { cmd: "/build", desc: "Switch to BUILD mode (code generation and execution)" },
   { cmd: "/plan", desc: "Switch to PLAN mode (architectural breakdown)" },
-  { cmd: "/server stop", desc: "Stop background inference servers and free RAM" },
+  { cmd: "/device", desc: "Connect companion phone & start server (127.0.0.1:8765)" },
+  { cmd: "/device status", desc: "Check companion phone & USB connection status" },
+  { cmd: "/device stop", desc: "Stop companion device server" },
+  { cmd: "/server start", desc: "Start companion device server (127.0.0.1:8765)" },
+  { cmd: "/server status", desc: "Check companion device server status" },
+  { cmd: "/server stop", desc: "Stop companion device server and background inference servers" },
   { cmd: "/help", desc: "Show available commands" },
   { cmd: "/exit", desc: "Quit Vecta" },
 ];
@@ -62,6 +67,10 @@ interface ChatProps {
   scrollOffset: number;
   // Available worker roles for dynamic autocomplete
   roles?: RoleDefinition[];
+  // Whether model inference or pipeline execution is currently active
+  isProcessing?: boolean;
+  // Current active role generating a response
+  activeRole?: string;
 }
 
 interface RenderedLine {
@@ -125,10 +134,24 @@ export const Chat: React.FC<ChatProps> = ({
   availableWidth = 50,
   scrollOffset,
   roles = [],
+  isProcessing = false,
+  activeRole,
 }) => {
   const [inputText, setInputText] = useState("");
   const [cursor, setCursor] = useState(0);
   const [dropdownIndex, setDropdownIndex] = useState(0);
+
+  // Animated spinner frame for live model inference loading indicator
+  const [spinnerIdx, setSpinnerIdx] = useState(0);
+  const SPINNER_FRAMES = useMemo(() => ["[·  ]", "[ · ]", "[  ·]", "[ · ]"], []);
+
+  React.useEffect(() => {
+    if (!isProcessing) return;
+    const interval = setInterval(() => {
+      setSpinnerIdx((prev) => (prev + 1) % SPINNER_FRAMES.length);
+    }, 150);
+    return () => clearInterval(interval);
+  }, [isProcessing, SPINNER_FRAMES]);
 
   // Synchronous refs to prevent stale closure when holding backspace/delete or typing rapidly
   const inputTextRef = React.useRef(inputText);
@@ -608,6 +631,16 @@ export const Chat: React.FC<ChatProps> = ({
 
       {/* 2. Reactive Expandable Input Container (One line above, dynamic lines in middle, one line below) */}
       <Box flexDirection="column" width={availableWidth - 2}>
+        {/* Live model inference loading indicator */}
+        {isProcessing && (
+          <Box flexDirection="row" height={1} marginBottom={0}>
+            <Text color={getRoleColor ? getRoleColor(activeRole || "Model") : modeColor} bold>
+              {SPINNER_FRAMES[spinnerIdx]} {activeRole || "Model"} is generating response...
+            </Text>
+            <Text dimColor> (please wait)</Text>
+          </Box>
+        )}
+
         {/* Top single line */}
         <Box flexDirection="row">
           <Text color="gray">

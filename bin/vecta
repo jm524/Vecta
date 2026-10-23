@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# macOS and Linux POSIX shell launcher for Vecta
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec node "$DIR/../source/interface/dist/main.js" "$@"
